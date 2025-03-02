@@ -1,35 +1,27 @@
-import axios from "axios";
-
-
-const api = axios.create({
-    baseURL: import.meta.env.VITE_BACKEND_URL,
-    withCredentials: true,
-    headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json"
-    }
-});
+import { axiosWrapper } from "./axiosWrapper";
 
 // API Endpoints
 
 // Auth Endpoints
-export const login = (data) => api.post("/api/user/login", data);
-export const register = (data) => api.post("/api/user/register", data);
-export const getUserData = () => api.get("/api/user");
-export const logout = () => api.post("/api/user/logout");
+export const login = (data) => axiosWrapper.post("/api/user/login", data);
+export const register = (data) => axiosWrapper.post("/api/user/register", data);
+export const getUserData = () => axiosWrapper.get("/api/user");
+export const logout = () => axiosWrapper.post("/api/user/logout");
 
 // Table Endpoints
-export const addTable = (data) => api.post("/api/table/", data);
-export const getTables = () => api.get("/api/table");
-export const updateTable = ({tableId, ...tableData}) => api.put(`/api/table/${tableId}`, tableData);
-
+export const addTable = (data) => axiosWrapper.post("/api/table/", data);
+export const getTables = () => axiosWrapper.get("/api/table");
+export const updateTable = ({ tableId, ...tableData }) =>
+  axiosWrapper.put(`/api/table/${tableId}`, tableData);
 
 // Payment Endpoints
-export const createOrderRazorpay = (data) => api.post("/api/payment/create-order", data);
-export const verifyPaymentRazorpay = (data) => api.post("/api/payment//verify-payment", data);
-
+export const createOrderRazorpay = (data) =>
+  axiosWrapper.post("/api/payment/create-order", data);
+export const verifyPaymentRazorpay = (data) =>
+  axiosWrapper.post("/api/payment//verify-payment", data);
 
 // Order Endpoints
-export const addOrder = (data) => api.post("/api/order/", data);
-export const getOrders = () => api.get("/api/order");
-export const updateOrderStatus = ({orderId, orderStatus}) => api.put(`/api/order/${orderId}`, {orderStatus});
+export const addOrder = (data) => axiosWrapper.post("/api/order/", data);
+export const getOrders = () => axiosWrapper.get("/api/order");
+export const updateOrderStatus = ({ orderId, orderStatus }) =>
+  axiosWrapper.put(`/api/order/${orderId}`, { orderStatus });
