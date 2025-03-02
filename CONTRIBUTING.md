@@ -15,9 +15,7 @@ Thank you for considering contributing to the **Restaurant POS System**! Your he
 ## 🏢 How to Contribute
 
 1. **Fork the repository** 📚
-2. **Clone your fork**
-<br>
-Note: ***Clone Only the dev Branch***
+2. **Clone your fork (Only the dev Branch)**
    ```bash
    git clone --branch dev https://github.com/amritmaurya1504/Restaurant-POS-System.git
    ```
