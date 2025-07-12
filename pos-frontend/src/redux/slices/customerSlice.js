@@ -30,11 +30,17 @@ const customerSlice = createSlice({
 
         updateTable: (state, action) => {
             state.table = action.payload.table;
+        },
+
+        setCustomerInfo: (state, action) => {
+            const { customerName, customerPhone } = action.payload;
+            state.customerName = customerName;
+            state.customerPhone = customerPhone;
         }
 
     }
 })
 
 
-export const { setCustomer, removeCustomer, updateTable } = customerSlice.actions;
+export const { setCustomer, removeCustomer, updateTable, setCustomerInfo } = customerSlice.actions;
 export default customerSlice.reducer;

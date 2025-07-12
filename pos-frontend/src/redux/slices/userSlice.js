@@ -22,6 +22,7 @@ const userSlice = createSlice({
             state.role = role;
             state.isAuth = true;
         },
+        
 
         removeUser: (state) => {
             state._id = "";
@@ -33,6 +34,7 @@ const userSlice = createSlice({
         }
     }
 })
+// console.log("role",role);
 
 export const { setUser, removeUser } = userSlice.actions;
 export default userSlice.reducer;

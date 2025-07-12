@@ -27,31 +27,31 @@ const Orders = () => {
   }
 
   return (
-    <section className="bg-[#1f1f1f]  h-[calc(100vh-5rem)] overflow-hidden">
+    <section className="bg-white h-[calc(100vh-5rem)] flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-10 py-4">
         <div className="flex items-center gap-4">
           <BackButton />
-          <h1 className="text-[#f5f5f5] text-2xl font-bold tracking-wider">
+          <h1 className="text-gray-800 text-2xl font-bold tracking-wider">
             Orders
           </h1>
         </div>
         <div className="flex items-center justify-around gap-4">
-          <button onClick={() => setStatus("all")} className={`text-[#ababab] text-lg ${status === "all" && "bg-[#383838] rounded-lg px-5 py-2"}  rounded-lg px-5 py-2 font-semibold`}>
+          <button onClick={() => setStatus("all")} className={`text-gray-700 text-lg ${status === "all" ? "bg-red-600 text-white" : "bg-gray-100"}  rounded-lg px-5 py-2 font-semibold`}>
             All
           </button>
-          <button onClick={() => setStatus("progress")} className={`text-[#ababab] text-lg ${status === "progress" && "bg-[#383838] rounded-lg px-5 py-2"}  rounded-lg px-5 py-2 font-semibold`}>
+          <button onClick={() => setStatus("progress")} className={`text-gray-700 text-lg ${status === "progress" ? "bg-red-600 text-white" : "bg-gray-100"}  rounded-lg px-5 py-2 font-semibold`}>
             In Progress
           </button>
-          <button onClick={() => setStatus("ready")} className={`text-[#ababab] text-lg ${status === "ready" && "bg-[#383838] rounded-lg px-5 py-2"}  rounded-lg px-5 py-2 font-semibold`}>
+          <button onClick={() => setStatus("ready")} className={`text-gray-700 text-lg ${status === "ready" ? "bg-red-600 text-white" : "bg-gray-100"}  rounded-lg px-5 py-2 font-semibold`}>
             Ready
           </button>
-          <button onClick={() => setStatus("completed")} className={`text-[#ababab] text-lg ${status === "completed" && "bg-[#383838] rounded-lg px-5 py-2"}  rounded-lg px-5 py-2 font-semibold`}>
+          <button onClick={() => setStatus("completed")} className={`text-gray-700 text-lg ${status === "completed" ? "bg-red-600 text-white" : "bg-gray-100"}  rounded-lg px-5 py-2 font-semibold`}>
             Completed
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 px-16 py-4 overflow-y-scroll scrollbar-hide">
+      <div className="grid grid-cols-3 gap-3 px-16 py-4 overflow-y-auto flex-1 h-[calc(100vh-15rem)]">
         {
           resData?.data.data.length > 0 ? (
             resData.data.data.map((order) => {
@@ -61,7 +61,9 @@ const Orders = () => {
         }
       </div>
 
-      <BottomNav />
+      <div className="mt-auto">
+        <BottomNav />
+      </div>
     </section>
   );
 };

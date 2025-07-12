@@ -3,7 +3,7 @@ import { FaCheckDouble, FaLongArrowAltRight } from "react-icons/fa";
 import { FaCircle } from "react-icons/fa";
 import { getAvatarName } from "../../utils/index";
 
-const OrderList = ({ key, order }) => {
+const OrderList = ({ order }) => {
   return (
     <div className="flex items-center gap-5 mb-3">
       <button className="bg-[#f6b100] p-3 text-xl font-bold rounded-lg">
@@ -18,8 +18,14 @@ const OrderList = ({ key, order }) => {
         </div>
 
         <h1 className="text-[#f6b100] font-semibold border border-[#f6b100] rounded-lg p-1">
-          Table <FaLongArrowAltRight className="text-[#ababab] ml-2 inline" />{" "}
-          {order.table.tableNo}
+          {order.table ? (
+            <>
+              Table <FaLongArrowAltRight className="text-[#ababab] ml-2 inline" />{" "}
+              {order.table.tableNo}
+            </>
+          ) : (
+            "Takeaway Order"
+          )}
         </h1>
 
         <div className="flex flex-col items-end gap-2">

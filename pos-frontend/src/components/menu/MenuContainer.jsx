@@ -8,30 +8,39 @@ import { addItems } from "../../redux/slices/cartSlice";
 
 const MenuContainer = () => {
   const [selected, setSelected] = useState(menus[0]);
-  const [itemCount, setItemCount] = useState(0);
-  const [itemId, setItemId] = useState();
+  const [itemQuantities, setItemQuantities] = useState({});
   const dispatch = useDispatch();
 
   const increment = (id) => {
-    setItemId(id);
-    if (itemCount >= 4) return;
-    setItemCount((prev) => prev + 1);
+    setItemQuantities(prev => {
+      const currentQuantity = prev[id] || 0;
+      if (currentQuantity >= 4) return prev;
+      return { ...prev, [id]: currentQuantity + 1 };
+    });
   };
 
   const decrement = (id) => {
-    setItemId(id);
-    if (itemCount <= 0) return;
-    setItemCount((prev) => prev - 1);
+    setItemQuantities(prev => {
+      const currentQuantity = prev[id] || 0;
+      if (currentQuantity <= 0) return prev;
+      return { ...prev, [id]: currentQuantity - 1 };
+    });
   };
 
   const handleAddToCart = (item) => {
-    if(itemCount === 0) return;
+    const quantity = itemQuantities[item.id] || 0;
+    if(quantity === 0) return;
 
     const {name, price} = item;
-    const newObj = { id: new Date(), name, pricePerQuantity: price, quantity: itemCount, price: price * itemCount };
+    const newObj = { id: new Date(), name, pricePerQuantity: price, quantity: quantity, price: price * quantity };
 
     dispatch(addItems(newObj));
-    setItemCount(0);
+    
+    // Reset only this item's quantity
+    setItemQuantities(prev => ({
+      ...prev,
+      [item.id]: 0
+    }));
   }
 
 
@@ -46,8 +55,6 @@ const MenuContainer = () => {
               style={{ backgroundColor: menu.bgColor }}
               onClick={() => {
                 setSelected(menu);
-                setItemId(0);
-                setItemCount(0);
               }}
             >
               <div className="flex items-center justify-between w-full">
@@ -93,7 +100,7 @@ const MenuContainer = () => {
                     &minus;
                   </button>
                   <span className="text-white">
-                    {itemId == item.id ? itemCount : "0"}
+                    {itemQuantities[item.id] || 0}
                   </span>
                   <button
                     onClick={() => increment(item.id)}

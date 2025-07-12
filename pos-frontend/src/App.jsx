@@ -6,6 +6,7 @@ import {
   Navigate,
 } from "react-router-dom";
 import { Home, Auth, Orders, Tables, Menu, Dashboard } from "./pages";
+import Products from "./pages/Products";
 import Header from "./components/shared/Header";
 import { useSelector } from "react-redux";
 import useLoadData from "./hooks/useLoadData";
@@ -26,18 +27,18 @@ function Layout() {
         <Route
           path="/"
           element={
-            <ProtectedRoutes>
+            <AdminRoute>
               <Home />
-            </ProtectedRoutes>
+            </AdminRoute>
           }
         />
         <Route path="/auth" element={isAuth ? <Navigate to="/" /> : <Auth />} />
         <Route
           path="/orders"
           element={
-            <ProtectedRoutes>
+            <AdminRoute>
               <Orders />
-            </ProtectedRoutes>
+            </AdminRoute>
           }
         />
         <Route
@@ -64,6 +65,14 @@ function Layout() {
             </ProtectedRoutes>
           }
         />
+        <Route
+          path="/products"
+          element={
+            <ProtectedRoutes>
+              <Products />
+            </ProtectedRoutes>
+          }
+        />
         <Route path="*" element={<div>Not Found</div>} />
       </Routes>
     </>
@@ -76,6 +85,21 @@ function ProtectedRoutes({ children }) {
     return <Navigate to="/auth" />;
   }
 
+  return children;
+}
+
+function AdminRoute({ children }) {
+  const { isAuth, role } = useSelector((state) => state.user);
+  
+  if (!isAuth) {
+    return <Navigate to="/auth" />;
+  }
+  
+  // If not an admin, redirect to menu page
+  if (role !== "Admin") {
+    return <Navigate to="/menu" />;
+  }
+  
   return children;
 }
 

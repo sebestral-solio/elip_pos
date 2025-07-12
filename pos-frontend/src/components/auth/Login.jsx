@@ -31,7 +31,14 @@ const Login = () => {
           console.log(data);
           const { _id, name, email, phone, role } = data.data;
           dispatch(setUser({ _id, name, email, phone, role }));
-          navigate("/");
+          console.log("role",role);
+          
+          // Redirect based on role
+          if (role === "Admin") {
+            navigate("/"); // Admin goes to dashboard
+          } else {
+            navigate("/menu"); // Cashier goes directly to menu
+          }
       },
       onError: (error) => {
         const { response } = error;
@@ -43,33 +50,33 @@ const Login = () => {
     <div>
       <form onSubmit={handleSubmit}>
         <div>
-          <label className="block text-[#ababab] mb-2 mt-3 text-sm font-medium">
+          <label className="block text-gray-700 mb-2 mt-3 text-sm font-medium">
             Employee Email
           </label>
-          <div className="flex item-center rounded-lg p-5 px-4 bg-[#1f1f1f]">
+          <div className="flex item-center rounded-lg p-5 px-4 bg-white border border-gray-300">
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleChange}
               placeholder="Enter employee email"
-              className="bg-transparent flex-1 text-white focus:outline-none"
+              className="bg-transparent flex-1 text-gray-800 focus:outline-none"
               required
             />
           </div>
         </div>
         <div>
-          <label className="block text-[#ababab] mb-2 mt-3 text-sm font-medium">
+          <label className="block text-gray-700 mb-2 mt-3 text-sm font-medium">
             Password
           </label>
-          <div className="flex item-center rounded-lg p-5 px-4 bg-[#1f1f1f]">
+          <div className="flex item-center rounded-lg p-5 px-4 bg-white border border-gray-300">
             <input
               type="password"
               name="password"
               value={formData.password}
               onChange={handleChange}
               placeholder="Enter password"
-              className="bg-transparent flex-1 text-white focus:outline-none"
+              className="bg-transparent flex-1 text-gray-800 focus:outline-none"
               required
             />
           </div>
@@ -77,7 +84,7 @@ const Login = () => {
 
         <button
           type="submit"
-          className="w-full rounded-lg mt-6 py-3 text-lg bg-yellow-400 text-gray-900 font-bold"
+          className="w-full rounded-lg mt-6 py-3 text-lg bg-red-600 text-white font-bold hover:bg-red-700 transition-colors"
         >
           Sign in
         </button>
