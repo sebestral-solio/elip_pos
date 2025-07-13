@@ -45,7 +45,7 @@ const Menu = () => {
         <ProductList />
       </div>
       {/* Right Div */}
-      <div className="flex-[1] bg-[#f2f3f5] mt-4 mr-3 h-[780px] rounded-lg pt-2 relative overflow-hidden">
+      <div className="flex-[1] bg-[#f2f3f5] mt-4 mr-3 h-[calc(100vh-10rem)] rounded-lg pt-2 relative">
         {/* Customer Info */}
         <CustomerInfo />
         <hr className="border-[#2a2a2a] border-t-2" />

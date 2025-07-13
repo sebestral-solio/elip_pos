@@ -38,7 +38,7 @@ const Bill = () => {
   const tax = (total * taxRate) / 100;
   const totalPriceWithTax = total + tax;
 
-  const [paymentMethod, setPaymentMethod] = useState();
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [showInvoice, setShowInvoice] = useState(false);
   const [orderInfo, setOrderInfo] = useState();
   
@@ -267,7 +267,7 @@ const Bill = () => {
           <button
             onClick={() => setPaymentMethod("Cash")}
             className={`bg-[white] px-4 py-3 w-full rounded-lg text-[black] font-semibold ${
-              paymentMethod === "Cash" ? "bg-[#29d92c]" : ""
+              paymentMethod === "Cash" ? "bg-[black] text-[white]" : ""
             }`}
           >
             Cash
@@ -275,7 +275,7 @@ const Bill = () => {
           <button
             onClick={() => setPaymentMethod("Online")}
             className={`bg-[white] px-4 py-3 w-full rounded-lg text-[black] font-semibold ${
-              paymentMethod === "Online" ? "bg-[#29d92c]" : ""
+              paymentMethod === "Online" ? "bg-[black] text-[white]" : ""
             }`}
           >
             Online
