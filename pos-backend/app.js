@@ -11,30 +11,10 @@ const PORT = config.port;
 connectDB();
 
 // Middlewares
-// app.use(cors({
-//     credentials: true,
-//     origin: ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:6000','https://pos.nxgenvarsity.com']
-// }))
-
-const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:4173',
-    'http://localhost:6000',
-    'https://pos.nxgenvarsity.com'
-  ];
-  
-  app.use(cors({
+app.use(cors({
     credentials: true,
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      } else {
-        return callback(new Error('Not allowed by CORS'));
-      }
-    }
-  }));
+    origin: ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:6000','https://pos.nxgenvarsity.com']
+}))
 app.use(express.json()); // parse incoming request in json format
 app.use(cookieParser())
 

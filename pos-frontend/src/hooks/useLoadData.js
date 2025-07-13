@@ -18,7 +18,7 @@ const useLoadData = () => {
         dispatch(setUser({ _id, name, email, phone, role }));
       } catch (error) {
         dispatch(removeUser());
-        navigate("/auth");
+        Navigate("/auth");
         console.log(error);
       }finally{
         setIsLoading(false);
