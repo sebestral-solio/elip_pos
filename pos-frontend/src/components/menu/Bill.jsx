@@ -267,7 +267,7 @@ const Bill = () => {
           <button
             onClick={() => setPaymentMethod("Cash")}
             className={`bg-[white] px-4 py-3 w-full rounded-lg text-[black] font-semibold ${
-              paymentMethod === "Cash" ? "bg-[black] text-[white]" : ""
+              paymentMethod === "Cash" ? "bg-[yellow] text-[black]" : ""
             }`}
           >
             Cash
@@ -275,7 +275,7 @@ const Bill = () => {
           <button
             onClick={() => setPaymentMethod("Online")}
             className={`bg-[white] px-4 py-3 w-full rounded-lg text-[black] font-semibold ${
-              paymentMethod === "Online" ? "bg-[black] text-[white]" : ""
+              paymentMethod === "Online" ? "bg-[yellow] text-[black]" : ""
             }`}
           >
             Online
