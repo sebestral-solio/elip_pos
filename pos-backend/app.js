@@ -13,7 +13,7 @@ connectDB();
 // Middlewares
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:6000','https:pos.nxgenvarsity.com']
+    origin: ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:6000','https://pos.nxgenvarsity.com']
 }))
 app.use(express.json()); // parse incoming request in json format
 app.use(cookieParser())
