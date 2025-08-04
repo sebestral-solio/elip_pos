@@ -29,8 +29,9 @@ const orderSchema = new mongoose.Schema({
     ],
     paymentMethod: String,
     paymentData: {
-        razorpay_order_id: String,
-        razorpay_payment_id: String
+        stripe_payment_intent_id: String,
+        stripe_charge_id: String,
+        payment_method_type: String // 'card_present', 'paynow', 'cash'
     }
 }, { timestamps: true });
 

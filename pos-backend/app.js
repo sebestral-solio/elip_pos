@@ -15,6 +15,11 @@ app.use(cors({
     credentials: true,
     origin: ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:6001','https://pos.nxgenvarsity.com']
 }))
+
+// Special handling for Stripe webhooks - need raw body
+app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
+
+// Parse JSON for all other routes
 app.use(express.json()); // parse incoming request in json format
 app.use(cookieParser())
 
