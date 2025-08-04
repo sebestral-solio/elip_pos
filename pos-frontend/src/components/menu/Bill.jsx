@@ -3,9 +3,11 @@ import { useDispatch, useSelector } from "react-redux";
 import { getTotalPrice } from "../../redux/slices/cartSlice";
 import {
   addOrder,
-  createOrderRazorpay,
+  createPaymentIntent,
   updateTable,
-  verifyPaymentRazorpay,
+  confirmPayment,
+  checkPaymentStatus,
+  capturePaymentIntent,
 } from "../../https/index";
 import { enqueueSnackbar } from "notistack";
 import { useMutation } from "@tanstack/react-query";
@@ -14,10 +16,15 @@ import { removeCustomer, setCustomerInfo } from "../../redux/slices/customerSlic
 import Invoice from "../invoice/Invoice";
 import { FaTimes } from "react-icons/fa";
 
-function loadScript(src) {
+function loadStripeTerminal() {
   return new Promise((resolve) => {
+    if (window.StripeTerminal) {
+      resolve(true);
+      return;
+    }
+
     const script = document.createElement("script");
-    script.src = src;
+    script.src = "https://js.stripe.com/terminal/v1/";
     script.onload = () => {
       resolve(true);
     };
@@ -41,33 +48,142 @@ const Bill = () => {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [showInvoice, setShowInvoice] = useState(false);
   const [orderInfo, setOrderInfo] = useState();
-  
+
   // Customer information modal state
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [customerName, setCustomerName] = useState(customerData.customerName || "");
   const [customerPhone, setCustomerPhone] = useState(customerData.customerPhone || "");
 
+  // Payment processing state
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState("");
+  const [paymentError, setPaymentError] = useState(null);
+
   // Handle customer info submission
   const handleCustomerInfoSubmit = (e) => {
     e.preventDefault();
-    
+
     // Validate inputs
     if (!customerName.trim()) {
       enqueueSnackbar("Please enter customer name", { variant: "warning" });
       return;
     }
-    
+
     if (!customerPhone.trim() || customerPhone.length < 10) {
       enqueueSnackbar("Please enter a valid phone number", { variant: "warning" });
       return;
     }
-    
+
     // Save customer info to Redux state
     dispatch(setCustomerInfo({ customerName, customerPhone }));
-    
+
     // Close modal and proceed with order
     setShowCustomerModal(false);
     proceedWithOrder();
+  };
+
+  // Payment monitoring functions
+  const startPaymentMonitoring = (paymentIntentId) => {
+    setIsProcessingPayment(true);
+    setPaymentStatus("Processing payment at terminal...");
+    setPaymentError(null);
+
+    // Start polling for payment status
+    const pollInterval = setInterval(async () => {
+      try {
+        const { data } = await checkPaymentStatus(paymentIntentId);
+        const { paymentIntent } = data;
+
+        if (paymentIntent.status === 'succeeded') {
+          clearInterval(pollInterval);
+          handlePaymentSuccess(paymentIntent);
+        } else if (paymentIntent.status === 'canceled' || paymentIntent.status === 'payment_failed') {
+          clearInterval(pollInterval);
+          handlePaymentFailure(paymentIntent);
+        } else if (paymentIntent.status === 'requires_capture') {
+          clearInterval(pollInterval);
+          handlePaymentCapture(paymentIntent);
+        }
+        // Continue polling for other statuses (requires_payment_method, processing, etc.)
+      } catch (error) {
+        console.error('Error checking payment status:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    // Set timeout for payment (60 seconds)
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (isProcessingPayment) {
+        handlePaymentTimeout();
+      }
+    }, 60000);
+  };
+
+  const handlePaymentSuccess = (paymentIntent) => {
+    setIsProcessingPayment(false);
+    setPaymentStatus("Payment successful!");
+
+    const actualPaymentMethod = paymentIntent.charges?.payment_method_details?.type || 'card_present';
+    enqueueSnackbar(`Payment successful via ${actualPaymentMethod === 'card_present' ? 'Card' : 'PayNow'}!`, { variant: "success" });
+
+    // Create order with payment data
+    createOrderWithPayment(paymentIntent);
+  };
+
+  const handlePaymentCapture = async (paymentIntent) => {
+    try {
+      setPaymentStatus("Capturing payment...");
+      const { data } = await capturePaymentIntent({ paymentIntentId: paymentIntent.id });
+
+      if (data.success) {
+        handlePaymentSuccess(data.paymentIntent);
+      } else {
+        handlePaymentFailure(paymentIntent, "Failed to capture payment");
+      }
+    } catch (error) {
+      handlePaymentFailure(paymentIntent, "Capture failed: " + error.message);
+    }
+  };
+
+  const handlePaymentFailure = (paymentIntent, customMessage = null) => {
+    setIsProcessingPayment(false);
+    const errorMessage = customMessage || "Payment failed. Please try again.";
+    setPaymentError(errorMessage);
+    enqueueSnackbar(errorMessage, { variant: "error" });
+  };
+
+  const handlePaymentTimeout = () => {
+    setIsProcessingPayment(false);
+    setPaymentError("Payment timed out. Please try again.");
+    enqueueSnackbar("Payment timed out. Customer may have abandoned the transaction.", { variant: "warning" });
+  };
+
+  const createOrderWithPayment = (paymentIntent) => {
+    const actualPaymentMethod = paymentIntent.charges?.payment_method_details?.type || 'card_present';
+
+    const orderData = {
+      customerDetails: {
+        name: customerName,
+        phone: customerPhone,
+        guests: customerData.guests || 1,
+      },
+      orderStatus: "In Progress",
+      bills: {
+        total: total,
+        tax: tax,
+        totalWithTax: totalPriceWithTax,
+      },
+      items: cartItems,
+      table: customerData.table?.tableId,
+      paymentMethod: paymentMethod, // "Online"
+      paymentData: {
+        stripe_payment_intent_id: paymentIntent.id,
+        stripe_charge_id: paymentIntent.charges?.id || null,
+        payment_method_type: actualPaymentMethod,
+      },
+    };
+
+    orderMutation.mutate(orderData);
   };
 
   // Show customer info modal before placing order
@@ -94,75 +210,32 @@ const Bill = () => {
     }
 
     if (paymentMethod === "Online") {
-      // load the script
       try {
-        const res = await loadScript(
-          "https://checkout.razorpay.com/v1/checkout.js"
-        );
+        // Load Stripe Terminal SDK
+        const res = await loadStripeTerminal();
 
         if (!res) {
-          enqueueSnackbar("Razorpay SDK failed to load. Are you online?", {
+          enqueueSnackbar("Stripe Terminal SDK failed to load. Are you online?", {
             variant: "warning",
           });
           return;
         }
 
-        // create order
-
+        // Create payment intent - backend will automatically support both card_present and paynow
         const reqData = {
           amount: totalPriceWithTax.toFixed(2),
-        };
-
-        const { data } = await createOrderRazorpay(reqData);
-
-        const options = {
-          key: `${import.meta.env.VITE_RAZORPAY_KEY_ID}`,
-          amount: data.order.amount,
-          currency: data.order.currency,
-          name: "RESTRO",
-          description: "Secure Payment for Your Meal",
-          order_id: data.order.id,
-          handler: async function (response) {
-            const verification = await verifyPaymentRazorpay(response);
-            console.log(verification);
-            enqueueSnackbar(verification.data.message, { variant: "success" });
-
-            // Place the order
-            const orderData = {
-              customerDetails: {
-                name: customerName,
-                phone: customerPhone,
-                guests: customerData.guests || 1,
-              },
-              orderStatus: "In Progress",
-              bills: {
-                total: total,
-                tax: tax,
-                totalWithTax: totalPriceWithTax,
-              },
-              items: cartItems,
-              table: customerData.table?.tableId,
-              paymentMethod: paymentMethod,
-              paymentData: {
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-              },
-            };
-
-            setTimeout(() => {
-              orderMutation.mutate(orderData);
-            }, 1500);
-          },
-          prefill: {
+          customerInfo: {
             name: customerName,
-            email: "",
-            contact: customerPhone,
+            phone: customerPhone,
           },
-          theme: { color: "#025cca" },
         };
 
-        const rzp = new window.Razorpay(options);
-        rzp.open();
+        const { data } = await createPaymentIntent(reqData);
+
+        // Start real-time payment monitoring
+        enqueueSnackbar("Payment created. Waiting for terminal processing...", { variant: "info" });
+        startPaymentMonitoring(data.paymentIntent.id);
+
       } catch (error) {
         console.log(error);
         enqueueSnackbar("Payment Failed!", {
@@ -170,7 +243,7 @@ const Bill = () => {
         });
       }
     } else {
-      // Place the order
+      // Cash payment - Place the order directly
       const orderData = {
         customerDetails: {
           name: customerName,
@@ -186,6 +259,9 @@ const Bill = () => {
         items: cartItems,
         table: customerData.table?.tableId,
         paymentMethod: paymentMethod,
+        paymentData: {
+          payment_method_type: "cash",
+        },
       };
       orderMutation.mutate(orderData);
     }
@@ -356,6 +432,66 @@ const Bill = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Processing Overlay */}
+      {isProcessingPayment && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 text-center">
+            <div className="mb-6">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">Processing Payment</h3>
+              <p className="text-gray-600">{paymentStatus}</p>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-500">
+                Please complete the payment at the terminal
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                setIsProcessingPayment(false);
+                setPaymentError("Payment cancelled by user");
+              }}
+              className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
+            >
+              Cancel Payment
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Error Overlay */}
+      {paymentError && !isProcessingPayment && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 text-center">
+            <div className="mb-6">
+              <div className="text-red-500 text-6xl mb-4">❌</div>
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">Payment Failed</h3>
+              <p className="text-gray-600">{paymentError}</p>
+            </div>
+
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setPaymentError(null)}
+                className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setPaymentError(null);
+                  // Could trigger retry logic here
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Try Again
+              </button>
+            </div>
           </div>
         </div>
       )}

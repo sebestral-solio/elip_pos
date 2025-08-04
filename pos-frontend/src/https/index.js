@@ -15,10 +15,22 @@ export const updateTable = ({ tableId, ...tableData }) =>
   axiosWrapper.put(`/api/table/${tableId}`, tableData);
 
 // Payment Endpoints
-export const createOrderRazorpay = (data) =>
-  axiosWrapper.post("/api/payment/create-order", data);
-export const verifyPaymentRazorpay = (data) =>
-  axiosWrapper.post("/api/payment//verify-payment", data);
+export const createPaymentIntent = (data) =>
+  axiosWrapper.post("/api/payment/create-payment-intent", data);
+export const confirmPayment = (data) =>
+  axiosWrapper.post("/api/payment/confirm-payment", data);
+export const getTerminalReaders = () =>
+  axiosWrapper.get("/api/payment/terminal/readers");
+export const createTerminalLocation = (data) =>
+  axiosWrapper.post("/api/payment/terminal/location", data);
+export const createConnectionToken = () =>
+  axiosWrapper.post("/api/payment/connection-token");
+export const checkPaymentStatus = (paymentIntentId) =>
+  axiosWrapper.get(`/api/payment/status/${paymentIntentId}`);
+export const capturePaymentIntent = (data) =>
+  axiosWrapper.post("/api/payment/capture", data);
+export const processPaymentOnReader = (data) =>
+  axiosWrapper.post("/api/payment/process-on-reader", data);
 
 // Order Endpoints
 export const addOrder = (data) => axiosWrapper.post("/api/order/", data);
