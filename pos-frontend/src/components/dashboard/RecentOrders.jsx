@@ -8,13 +8,13 @@ import { formatDateAndTime } from "../../utils";
 
 const RecentOrders = () => {
   const queryClient = useQueryClient();
-  const handleStatusChange = ({orderId, orderStatus}) => {
+  const handleStatusChange = ({orderId, paymentStatus}) => {
     console.log(orderId)
-    orderStatusUpdateMutation.mutate({orderId, orderStatus});
+    orderStatusUpdateMutation.mutate({orderId, paymentStatus});
   };
 
   const orderStatusUpdateMutation = useMutation({
-    mutationFn: ({orderId, orderStatus}) => updateOrderStatus({orderId, orderStatus}),
+    mutationFn: ({orderId, paymentStatus}) => updateOrderStatus({orderId, paymentStatus}),
     onSuccess: (data) => {
       enqueueSnackbar("Order status updated successfully!", { variant: "success" });
       queryClient.invalidateQueries(["orders"]); // Refresh order list
@@ -68,12 +68,12 @@ const RecentOrders = () => {
                 <td className="p-4">
                   <select
                     className={`bg-[#1a1a1a] text-[#f5f5f5] border border-gray-500 p-2 rounded-lg focus:outline-none ${
-                      order.orderStatus === "Ready"
+                      order.paymentStatus === "Ready"
                         ? "text-green-500"
                         : "text-yellow-500"
                     }`}
-                    value={order.orderStatus}
-                    onChange={(e) => handleStatusChange({orderId: order._id, orderStatus: e.target.value})}
+                    value={order.paymentStatus}
+                    onChange={(e) => handleStatusChange({orderId: order._id, paymentStatus: e.target.value})}
                   >
                     <option className="text-yellow-500" value="In Progress">
                       In Progress

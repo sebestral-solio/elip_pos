@@ -88,35 +88,62 @@ const Bill = () => {
     setPaymentStatus("Processing payment at terminal...");
     setPaymentError(null);
 
+    let paymentTimeout;
+
     // Start polling for payment status
     const pollInterval = setInterval(async () => {
       try {
         const { data } = await checkPaymentStatus(paymentIntentId);
         const { paymentIntent } = data;
 
+
         if (paymentIntent.status === 'succeeded') {
+          console.log('✅ Payment succeeded, stopping polling');
           clearInterval(pollInterval);
+          clearTimeout(paymentTimeout);
           handlePaymentSuccess(paymentIntent);
-        } else if (paymentIntent.status === 'canceled' || paymentIntent.status === 'payment_failed') {
+        } else if (paymentIntent.status === 'canceled') {
+          // Only stop polling for explicit cancellation (user cancelled at terminal)
+          console.log('❌ Payment cancelled, stopping polling');
           clearInterval(pollInterval);
-          handlePaymentFailure(paymentIntent);
+          clearTimeout(paymentTimeout);
+          handlePaymentCancellation(paymentIntent);
+        } else if (paymentIntent.status === 'payment_failed') {
+          // Don't stop polling on payment failure - just show error and continue polling
+          // This allows the customer to try again at the terminal
+          console.log('⚠️ Payment failed, continuing polling');
+          handlePaymentFailureWithContinuedPolling(paymentIntent);
         } else if (paymentIntent.status === 'requires_capture') {
+          console.log('💰 Payment requires capture, stopping polling');
           clearInterval(pollInterval);
+          clearTimeout(paymentTimeout);
           handlePaymentCapture(paymentIntent);
+        } else if (paymentIntent.status === 'requires_payment_method') {
+          // Continue polling - waiting for customer to present payment method
+          
+          setPaymentStatus("Waiting for payment method at terminal...");
+        } else if (paymentIntent.status === 'processing') {
+          // Continue polling - payment is being processed
+          
+          setPaymentStatus("Processing payment...");
+        } else {
+          // For any other status, continue polling with generic message
+          setPaymentStatus("Processing payment at terminal...");
         }
         // Continue polling for other statuses (requires_payment_method, processing, etc.)
       } catch (error) {
         console.error('Error checking payment status:', error);
+        // Don't stop polling on API errors - the connection might recover
+        // Just update the status to indicate there's a connection issue
+        setPaymentStatus("Connection issue. Retrying...");
       }
     }, 2000); // Poll every 2 seconds
 
     // Set timeout for payment (60 seconds)
-    setTimeout(() => {
+    paymentTimeout = setTimeout(() => {
       clearInterval(pollInterval);
-      if (isProcessingPayment) {
-        handlePaymentTimeout();
-      }
-    }, 60000);
+      handlePaymentTimeout();
+    }, 60000); // Fixed: 60 seconds instead of 10 minutes
   };
 
   const handlePaymentSuccess = (paymentIntent) => {
@@ -152,6 +179,30 @@ const Bill = () => {
     enqueueSnackbar(errorMessage, { variant: "error" });
   };
 
+  const handlePaymentFailureWithContinuedPolling = (paymentIntent) => {
+    // Keep isProcessingPayment = true to continue polling
+    // Just show error message but don't stop the payment process
+    const errorMessage = "Payment failed. Please try again at the terminal.";
+    setPaymentError(errorMessage);
+    setPaymentStatus("Waiting for retry at terminal...");
+    enqueueSnackbar(errorMessage, { variant: "error" });
+
+    // Clear the error message after a few seconds so it doesn't stay permanently
+    setTimeout(() => {
+      if (isProcessingPayment) {
+        setPaymentError(null);
+        setPaymentStatus("Processing payment at terminal...");
+      }
+    }, 5000);
+  };
+
+  const handlePaymentCancellation = (paymentIntent) => {
+    setIsProcessingPayment(false);
+    const errorMessage = "Payment was cancelled.";
+    setPaymentError(errorMessage);
+    enqueueSnackbar(errorMessage, { variant: "warning" });
+  };
+
   const handlePaymentTimeout = () => {
     setIsProcessingPayment(false);
     setPaymentError("Payment timed out. Please try again.");
@@ -167,7 +218,7 @@ const Bill = () => {
         phone: customerPhone,
         guests: customerData.guests || 1,
       },
-      orderStatus: "In Progress",
+      paymentStatus: "In Progress",
       bills: {
         total: total,
         tax: tax,
@@ -180,6 +231,7 @@ const Bill = () => {
         stripe_payment_intent_id: paymentIntent.id,
         stripe_charge_id: paymentIntent.charges?.id || null,
         payment_method_type: actualPaymentMethod,
+        stripe_order_id: paymentIntent.metadata?.orderId || null, // Extract Order ID from metadata
       },
     };
 
@@ -250,7 +302,7 @@ const Bill = () => {
           phone: customerPhone,
           guests: customerData.guests || 1,
         },
-        orderStatus: "In Progress",
+        paymentStatus: "In Progress",
         bills: {
           total: total,
           tax: tax,
@@ -271,7 +323,9 @@ const Bill = () => {
     mutationFn: (reqData) => addOrder(reqData),
     onSuccess: (resData) => {
       const { data } = resData.data;
-      console.log(data);
+      console.log('📦 Database response with created order data:', resData);
+      console.log('📋 Order data extracted:', data);
+      console.log('🆔 Order ID from database:', data._id);
 
       setOrderInfo(data);
       
@@ -445,6 +499,13 @@ const Bill = () => {
               <h3 className="text-xl font-semibold text-gray-800 mb-2">Processing Payment</h3>
               <p className="text-gray-600">{paymentStatus}</p>
             </div>
+
+            {/* Show error message if there's one, but keep processing */}
+            {paymentError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-600">{paymentError}</p>
+              </div>
+            )}
 
             <div className="mb-4">
               <p className="text-sm text-gray-500">

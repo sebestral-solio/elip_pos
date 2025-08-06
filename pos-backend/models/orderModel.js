@@ -5,7 +5,7 @@ const orderSchema = new mongoose.Schema({
         name: { type: String, required: false },
         phone: { type: String, required: false },
     },
-    orderStatus: {
+    paymentStatus: {
         type: String,
         default: "Completed",
         required: true
@@ -29,10 +29,10 @@ const orderSchema = new mongoose.Schema({
     ],
     paymentMethod: String,
     paymentData: {
-        stripe_payment_intent_id: String,
-        stripe_charge_id: String,
-        payment_method_type: String // 'card_present', 'paynow', 'cash'
-    }
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'Payment'
+}
+
 }, { timestamps: true });
 
 module.exports = mongoose.model("Order", orderSchema);

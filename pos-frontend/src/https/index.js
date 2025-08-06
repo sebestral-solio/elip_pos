@@ -35,8 +35,8 @@ export const processPaymentOnReader = (data) =>
 // Order Endpoints
 export const addOrder = (data) => axiosWrapper.post("/api/order/", data);
 export const getOrders = () => axiosWrapper.get("/api/order");
-export const updateOrderStatus = ({ orderId, orderStatus }) =>
-  axiosWrapper.put(`/api/order/${orderId}`, { orderStatus });
+export const updateOrderStatus = ({ orderId, paymentStatus }) =>
+  axiosWrapper.put(`/api/order/${orderId}`, { paymentStatus });
 
 // Product Endpoints
 export const getProducts = () => axiosWrapper.get("/api/products");

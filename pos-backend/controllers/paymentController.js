@@ -55,7 +55,7 @@ const createPaymentIntent = async (req, res, next) => {
       );
 
       console.log(`💳 PaymentIntent ${paymentIntent.id} sent to reader ${readerId}`);
-      console.log(`📱 Reader status: ${reader.status}, Action status: ${reader.action?.status}`);
+      console.log(` Reader status: ${reader.status}, Action status: ${reader.action?.status}`);
 
       res.status(200).json({
         success: true,

@@ -29,16 +29,16 @@ const OrderList = ({ order }) => {
         </h1>
 
         <div className="flex flex-col items-end gap-2">
-          {order.orderStatus === "Ready" ? (
+          {order.paymentStatus === "Ready" ? (
             <>
               <p className="text-green-600 bg-[#2e4a40] px-2 py-1 rounded-lg">
-                <FaCheckDouble className="inline mr-2" /> {order.orderStatus}
+                <FaCheckDouble className="inline mr-2" /> {order.paymentStatus}
               </p>
             </>
           ) : (
             <>
               <p className="text-yellow-600 bg-[#4a452e] px-2 py-1 rounded-lg">
-                <FaCircle className="inline mr-2" /> {order.orderStatus}
+                <FaCircle className="inline mr-2" /> {order.paymentStatus}
               </p>
             </>
           )}
