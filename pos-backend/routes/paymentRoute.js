@@ -10,7 +10,9 @@ const {
   createConnectionToken,
   checkPaymentStatus,
   capturePaymentIntent,
-  processPaymentOnReader
+  processPaymentOnReader,
+  getPendingOrders,
+  checkPaymentFailureAndCleanup
 } = require("../controllers/paymentController");
 
 router.route("/create-payment-intent").post(isVerifiedUser, createPaymentIntent);
@@ -22,5 +24,7 @@ router.route("/connection-token").post(isVerifiedUser, createConnectionToken);
 router.route("/status/:paymentIntentId").get(isVerifiedUser, checkPaymentStatus);
 router.route("/capture").post(isVerifiedUser, capturePaymentIntent);
 router.route("/process-on-reader").post(isVerifiedUser, processPaymentOnReader);
+router.route("/pending-orders").get(isVerifiedUser, getPendingOrders);
+router.route("/check-failure/:paymentIntentId").get(isVerifiedUser, checkPaymentFailureAndCleanup);
 
 module.exports = router;

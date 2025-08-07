@@ -103,48 +103,74 @@ const deleteProduct = async (req, res, next) => {
 // Update product quantities after order placement
 const updateProductQuantities = async (orderItems) => {
   try {
+    console.log('📦 Starting inventory update for items:', orderItems);
+
     // Extract product IDs and quantities from order items
     const updates = orderItems.map(item => ({
-      productId: item.id,
-      quantity: item.quantity
+      productId: item.id || item.productId, // Handle both id and productId fields
+      quantity: item.quantity,
+      itemName: item.name
     }));
-    
+
+    console.log('📋 Processing updates:', updates);
+
     // Process each product update
     const updateResults = await Promise.all(
-      updates.map(async ({ productId, quantity }) => {
-        // Find the product
-        const product = await Product.findById(productId);
-        
-        if (!product) {
-          return { success: false, productId, message: 'Product not found' };
+      updates.map(async ({ productId, quantity, itemName }) => {
+        try {
+          // Find the product
+          const product = await Product.findById(productId);
+
+          if (!product) {
+            console.log(`❌ Product not found: ${productId} (${itemName})`);
+            return { success: false, productId, itemName, message: 'Product not found' };
+          }
+
+          console.log(`📊 Current stock for ${product.name}: ${product.quantity}, ordering: ${quantity}`);
+
+          // Calculate new quantity (ensure it doesn't go below 0)
+          const newQuantity = Math.max(0, product.quantity - quantity);
+
+          // Update product quantity and availability status
+          const updatedProduct = await Product.findByIdAndUpdate(
+            productId,
+            {
+              quantity: newQuantity,
+              available: newQuantity > 0
+            },
+            { new: true }
+          );
+
+          console.log(`✅ Updated ${product.name}: ${product.quantity} → ${newQuantity} (available: ${updatedProduct.available})`);
+
+          return {
+            success: true,
+            productId,
+            itemName: product.name,
+            oldQuantity: product.quantity,
+            newQuantity: updatedProduct.quantity,
+            available: updatedProduct.available,
+            quantityOrdered: quantity
+          };
+        } catch (itemError) {
+          console.error(`❌ Error updating product ${productId}:`, itemError);
+          return { success: false, productId, itemName, message: itemError.message };
         }
-        
-        // Calculate new quantity
-        const newQuantity = Math.max(0, product.quantity - quantity);
-        
-        // Update product quantity and availability status
-        const updatedProduct = await Product.findByIdAndUpdate(
-          productId,
-          { 
-            quantity: newQuantity,
-            available: newQuantity > 0 
-          },
-          { new: true }
-        );
-        
-        return { 
-          success: true, 
-          productId, 
-          oldQuantity: product.quantity,
-          newQuantity: updatedProduct.quantity,
-          available: updatedProduct.available
-        };
       })
     );
-    
-    return { success: true, updates: updateResults };
+
+    // Log summary
+    const successful = updateResults.filter(r => r.success);
+    const failed = updateResults.filter(r => !r.success);
+
+    console.log(`📈 Inventory update complete: ${successful.length} successful, ${failed.length} failed`);
+    if (failed.length > 0) {
+      console.log('❌ Failed updates:', failed);
+    }
+
+    return { success: true, updates: updateResults, summary: { successful: successful.length, failed: failed.length } };
   } catch (error) {
-    console.error('Error updating product quantities:', error);
+    console.error('❌ Error updating product quantities:', error);
     return { success: false, error: error.message };
   }
 };

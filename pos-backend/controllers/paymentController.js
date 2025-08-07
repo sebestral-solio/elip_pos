@@ -2,7 +2,74 @@ const stripe = require("stripe");
 const config = require("../config/config");
 const crypto = require("crypto");
 const Payment = require("../models/paymentModel");
+const Order = require("../models/orderModel");
+const Product = require("../models/productModel");
+const { updateProductQuantities } = require("./productController");
 const createHttpError = require("http-errors");
+
+// Temporary storage for pending orders (in production, consider using Redis or database)
+const pendingOrders = new Map();
+
+// Cleanup expired pending orders (older than 1 hour)
+const cleanupExpiredOrders = () => {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  for (const [orderId, orderData] of pendingOrders.entries()) {
+    if (orderData.createdAt < oneHourAgo) {
+      pendingOrders.delete(orderId);
+      console.log(`🧹 Cleaned up expired pending order: ${orderId}`);
+    }
+  }
+};
+
+// Run cleanup every 30 minutes
+setInterval(cleanupExpiredOrders, 30 * 60 * 1000);
+
+// Helper function to validate inventory before placing order
+const validateInventory = async (orderItems) => {
+  try {
+    const invalidItems = [];
+
+    // Check each item in the order
+    for (const item of orderItems) {
+      const product = await Product.findById(item.id || item.productId);
+
+      // If product not found or not enough quantity
+      if (!product) {
+        invalidItems.push({
+          id: item.id || item.productId,
+          name: item.name,
+          requested: item.quantity,
+          available: 0,
+          reason: "Product not found"
+        });
+      } else if (!product.available) {
+        invalidItems.push({
+          id: item.id || item.productId,
+          name: product.name,
+          requested: item.quantity,
+          available: product.quantity,
+          reason: "Product not available"
+        });
+      } else if (product.quantity < item.quantity) {
+        invalidItems.push({
+          id: item.id || item.productId,
+          name: product.name,
+          requested: item.quantity,
+          available: product.quantity,
+          reason: "Insufficient quantity"
+        });
+      }
+    }
+
+    return {
+      valid: invalidItems.length === 0,
+      invalidItems
+    };
+  } catch (error) {
+    console.error('Error validating inventory:', error);
+    throw error;
+  }
+};
 
 // Initialize Stripe with secret key
 const stripeClient = config.stripeSecretKey ? stripe(config.stripeSecretKey) : null;
@@ -14,10 +81,51 @@ const createPaymentIntent = async (req, res, next) => {
       return next(error);
     }
 
-    const { amount, customerInfo } = req.body;
+    const { amount, customerInfo, orderData } = req.body;
+
+    // Validate required order data
+    // Validate required order data
+    if (!orderData || !orderData.items || !orderData.bills) {
+      console.log("Missing order data:", { orderData: !!orderData, items: !!orderData?.items, bills: !!orderData?.bills });
+      const error = createHttpError(400, "Order data with items and bills is required");
+      return next(error);
+    }
+
+    // Validate inventory before creating payment intent
+    if (orderData.items && orderData.items.length > 0) {
+      const inventoryCheck = await validateInventory(orderData.items);
+
+      if (!inventoryCheck.valid) {
+        return res.status(400).json({
+          success: false,
+          message: "Insufficient inventory for some items",
+          invalidItems: inventoryCheck.invalidItems
+        });
+      }
+    }
 
     // Convert amount to cents (Stripe uses smallest currency unit)
     const amountInCents = Math.round(amount * 100);
+
+    // Generate unique order ID
+    const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+
+    // Store order data temporarily until payment succeeds
+    const completeOrderData = {
+      orderId,
+      customerDetails: {
+        name: customerInfo?.name || '',
+        phone: customerInfo?.phone || ''
+      },
+      paymentStatus: "Pending", // Will be updated to "Completed" after payment succeeds
+      items: orderData.items,
+      bills: orderData.bills,
+      paymentMethod: orderData.paymentMethod || 'stripe',
+      createdAt: new Date()
+    };
+
+    // Store in temporary storage
+    pendingOrders.set(orderId, completeOrderData);
 
     // Always support both card_present and paynow payment methods
     // This allows the terminal to handle either payment method based on customer choice
@@ -27,13 +135,18 @@ const createPaymentIntent = async (req, res, next) => {
       payment_method_types: ['card_present', 'paynow'],
       capture_method: 'automatic', // Manual capture for better control
       metadata: {
-        orderId: `order_${Date.now()}`,
+        orderId: orderId,
         customerName: customerInfo?.name || '',
         customerPhone: customerInfo?.phone || ''
       }
     };
 
     const paymentIntent = await stripeClient.paymentIntents.create(paymentIntentOptions);
+
+    // Debug logging for PaymentIntent creation
+    console.log(`💳 PaymentIntent created: ${paymentIntent.id}`);
+    console.log(`📋 PaymentIntent metadata:`, paymentIntent.metadata);
+    console.log(`🆔 Order ID in metadata: ${paymentIntent.metadata?.orderId}`);
 
     // Process the PaymentIntent on the terminal reader
     const readerId = config.stripeTerminalReaderId;
@@ -59,6 +172,7 @@ const createPaymentIntent = async (req, res, next) => {
 
       res.status(200).json({
         success: true,
+        orderId: orderId,
         paymentIntent: {
           id: paymentIntent.id,
           client_secret: paymentIntent.client_secret,
@@ -79,6 +193,7 @@ const createPaymentIntent = async (req, res, next) => {
       // The frontend can handle this gracefully
       res.status(200).json({
         success: true,
+        orderId: orderId,
         paymentIntent: {
           id: paymentIntent.id,
           client_secret: paymentIntent.client_secret,
@@ -185,6 +300,63 @@ const stripeWebhookHandler = async (req, res, next) => {
 
               await newPayment.save();
               console.log(`💾 Payment saved to database: ${paymentIntent.id} (charge: ${charge?.id || 'none'})`);
+
+              // Create order after successful payment
+              const orderId = paymentIntent.metadata.orderId;
+              if (orderId && pendingOrders.has(orderId)) {
+                try {
+                  const orderData = pendingOrders.get(orderId);
+
+                  // Create the order with payment reference
+                  const newOrder = new Order({
+                    orderId: orderId,
+                    customerDetails: orderData.customerDetails,
+                    paymentStatus: "Completed",
+                    orderDate: new Date(),
+                    bills: orderData.bills,
+                    items: orderData.items,
+                    paymentMethod: orderData.paymentMethod,
+                    paymentData: newPayment._id // Reference to the payment
+                  });
+
+                  await newOrder.save();
+                  console.log(`📋 Order created successfully: ${orderId}`);
+
+                  // Update product quantities after order is created
+                  if (orderData.items && orderData.items.length > 0) {
+                    try {
+                      console.log(`📦 Starting inventory update for order ${orderId} with ${orderData.items.length} items`);
+                      const updateResult = await updateProductQuantities(orderData.items);
+
+                      if (updateResult.success) {
+                        console.log(`✅ Inventory update successful for ${orderId}:`, updateResult.summary);
+                        if (updateResult.updates) {
+                          updateResult.updates.forEach(update => {
+                            if (update.success) {
+                              console.log(`  📊 ${update.itemName}: ${update.oldQuantity} → ${update.newQuantity} (-${update.quantityOrdered})`);
+                            }
+                          });
+                        }
+                      } else {
+                        console.error(`⚠️ Failed to update inventory for order ${orderId}:`, updateResult.error);
+                        // Order is created but inventory wasn't updated - needs manual review
+                      }
+                    } catch (inventoryError) {
+                      console.error(`❌ Inventory update error for order ${orderId}:`, inventoryError);
+                    }
+                  } else {
+                    console.log(`⚠️ No items found for inventory update in order ${orderId}`);
+                  }
+
+                  // Remove from pending orders
+                  pendingOrders.delete(orderId);
+                } catch (orderError) {
+                  console.error(`❌ Failed to create order for ${orderId}:`, orderError);
+                  // Payment succeeded but order creation failed - this needs manual intervention
+                }
+              } else {
+                console.log(`⚠️ No pending order data found for orderId: ${orderId}`);
+              }
             }
           } catch (retrieveError) {
             console.error('Failed to retrieve payment:', retrieveError);
@@ -359,6 +531,11 @@ const checkPaymentStatus = async (req, res, next) => {
 
     const paymentIntent = await stripeClient.paymentIntents.retrieve(paymentIntentId);
 
+    // Debug logging for metadata
+    // console.log(`🔍 Checking payment status for ${paymentIntentId}`);
+    // console.log(`📋 Payment metadata:`, paymentIntent.metadata);
+    // console.log(`📊 Payment status: ${paymentIntent.status}`);
+
     res.status(200).json({
       success: true,
       paymentIntent: {
@@ -366,7 +543,8 @@ const checkPaymentStatus = async (req, res, next) => {
         status: paymentIntent.status,
         amount: paymentIntent.amount,
         currency: paymentIntent.currency,
-        charges: paymentIntent.charges?.data?.[0] || null
+        charges: paymentIntent.charges?.data?.[0] || null,
+        metadata: paymentIntent.metadata || {} // Include metadata with orderId
       }
     });
   } catch (error) {
@@ -441,6 +619,79 @@ const capturePaymentIntent = async (req, res, next) => {
 //   }
 // };
 
+// Helper function to get pending orders (for debugging)
+const getPendingOrders = async (req, res, next) => {
+  try {
+    const pendingOrdersArray = Array.from(pendingOrders.entries()).map(([orderId, orderData]) => ({
+      orderId,
+      ...orderData
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: pendingOrdersArray.length,
+      data: pendingOrdersArray
+    });
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+// Check if payment has failed at terminal and clean up
+const checkPaymentFailureAndCleanup = async (req, res, next) => {
+  try {
+    const { paymentIntentId } = req.params;
+
+    if (!stripeClient) {
+      const error = createHttpError(500, "Stripe not configured. Please set STRIPE_SECRET_KEY environment variable.");
+      return next(error);
+    }
+
+    const paymentIntent = await stripeClient.paymentIntents.retrieve(paymentIntentId);
+    const orderId = paymentIntent.metadata?.orderId;
+
+    console.log(`🔍 Checking payment failure for ${paymentIntentId}, orderId: ${orderId}`);
+
+    // Check if this payment has been stuck in requires_payment_method for too long
+    // and if there's a pending order that should be cleaned up
+    let shouldCleanup = false;
+    let failureReason = null;
+
+    if (paymentIntent.status === 'requires_payment_method' && orderId && pendingOrders.has(orderId)) {
+      const orderData = pendingOrders.get(orderId);
+      const orderAge = Date.now() - orderData.createdAt.getTime();
+
+      // If order is older than 2 minutes and still requires payment method, likely failed
+      if (orderAge > 2 * 60 * 1000) {
+        shouldCleanup = true;
+        failureReason = "Payment timeout at terminal";
+        console.log(`🧹 Payment likely failed - cleaning up order ${orderId} (age: ${Math.round(orderAge/1000)}s)`);
+      }
+    }
+
+    if (shouldCleanup && orderId) {
+      pendingOrders.delete(orderId);
+    }
+
+    res.status(200).json({
+      success: true,
+      paymentIntent: {
+        id: paymentIntent.id,
+        status: paymentIntent.status,
+        metadata: paymentIntent.metadata
+      },
+      shouldStop: shouldCleanup,
+      failureReason: failureReason,
+      cleanedUp: shouldCleanup
+    });
+
+  } catch (error) {
+    console.error('Error checking payment failure:', error);
+    next(error);
+  }
+};
+
 module.exports = {
   createPaymentIntent,
   confirmPayment,
@@ -450,5 +701,7 @@ module.exports = {
   createConnectionToken,
   checkPaymentStatus,
   capturePaymentIntent,
-  processPaymentOnReader
+  processPaymentOnReader,
+  getPendingOrders,
+  checkPaymentFailureAndCleanup
 };

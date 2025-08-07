@@ -89,9 +89,12 @@ const Bill = () => {
     setPaymentError(null);
 
     let paymentTimeout;
+    let consecutiveRequiresPaymentMethod = 0; // Track consecutive requires_payment_method responses
+    let pollCount = 0;
 
     // Start polling for payment status
     const pollInterval = setInterval(async () => {
+      pollCount++;
       try {
         const { data } = await checkPaymentStatus(paymentIntentId);
         const { paymentIntent } = data;
@@ -99,6 +102,8 @@ const Bill = () => {
 
         if (paymentIntent.status === 'succeeded') {
           console.log('✅ Payment succeeded, stopping polling');
+          console.log('🔍 Payment Intent data:', paymentIntent);
+          console.log('📋 Payment metadata:', paymentIntent.metadata);
           clearInterval(pollInterval);
           clearTimeout(paymentTimeout);
           handlePaymentSuccess(paymentIntent);
@@ -109,25 +114,60 @@ const Bill = () => {
           clearTimeout(paymentTimeout);
           handlePaymentCancellation(paymentIntent);
         } else if (paymentIntent.status === 'payment_failed') {
-          // Don't stop polling on payment failure - just show error and continue polling
-          // This allows the customer to try again at the terminal
-          console.log('⚠️ Payment failed, continuing polling');
-          handlePaymentFailureWithContinuedPolling(paymentIntent);
+          // Payment has definitively failed - stop polling and show error
+          console.log('❌ Payment failed, stopping polling');
+          clearInterval(pollInterval);
+          clearTimeout(paymentTimeout);
+
+          // Get failure reason from charges if available
+          const failureReason = paymentIntent.charges?.data?.[0]?.failure_message ||
+                               paymentIntent.charges?.data?.[0]?.outcome?.seller_message ||
+                               "Payment failed. Please try again.";
+
+          handlePaymentFailure(paymentIntent, failureReason);
         } else if (paymentIntent.status === 'requires_capture') {
           console.log('💰 Payment requires capture, stopping polling');
           clearInterval(pollInterval);
           clearTimeout(paymentTimeout);
           handlePaymentCapture(paymentIntent);
         } else if (paymentIntent.status === 'requires_payment_method') {
-          // Continue polling - waiting for customer to present payment method
-          
-          setPaymentStatus("Waiting for payment method at terminal...");
+          consecutiveRequiresPaymentMethod++;
+
+          // If we've been getting requires_payment_method for too long, check with backend
+          if (consecutiveRequiresPaymentMethod >= 6 && pollCount > 6) { // 30+ seconds of requires_payment_method
+            try {
+              // Check with backend if this payment has failed at terminal level
+              const { data: failureCheck } = await axios.get(`/api/payment/check-failure/${paymentIntentId}`);
+
+              if (failureCheck.shouldStop) {
+                console.log('❌ Backend confirmed payment failed at terminal, stopping polling');
+                clearInterval(pollInterval);
+                clearTimeout(paymentTimeout);
+                handlePaymentFailure(paymentIntent, failureCheck.failureReason || "Payment failed at terminal. Please try again.");
+                return;
+              }
+            } catch (failureCheckError) {
+              console.error('Error checking payment failure:', failureCheckError);
+            }
+          }
+
+          // If we've been stuck for too long without backend confirmation, stop anyway
+          if (consecutiveRequiresPaymentMethod >= 12) { // 60+ seconds
+            console.log('❌ Payment stuck in requires_payment_method too long, stopping polling');
+            clearInterval(pollInterval);
+            clearTimeout(paymentTimeout);
+            handlePaymentFailure(paymentIntent, "Payment timeout at terminal. Please try again.");
+          } else {
+            // Continue polling - waiting for customer to present payment method
+            setPaymentStatus("Waiting for payment method at terminal...");
+          }
         } else if (paymentIntent.status === 'processing') {
-          // Continue polling - payment is being processed
-          
+          // Reset counter if status changes to processing
+          consecutiveRequiresPaymentMethod = 0;
           setPaymentStatus("Processing payment...");
         } else {
-          // For any other status, continue polling with generic message
+          // Reset counter for any other status
+          consecutiveRequiresPaymentMethod = 0;
           setPaymentStatus("Processing payment at terminal...");
         }
         // Continue polling for other statuses (requires_payment_method, processing, etc.)
@@ -174,27 +214,37 @@ const Bill = () => {
 
   const handlePaymentFailure = (paymentIntent, customMessage = null) => {
     setIsProcessingPayment(false);
-    const errorMessage = customMessage || "Payment failed. Please try again.";
-    setPaymentError(errorMessage);
-    enqueueSnackbar(errorMessage, { variant: "error" });
-  };
+    setPaymentStatus("Payment Failed");
 
-  const handlePaymentFailureWithContinuedPolling = (paymentIntent) => {
-    // Keep isProcessingPayment = true to continue polling
-    // Just show error message but don't stop the payment process
-    const errorMessage = "Payment failed. Please try again at the terminal.";
-    setPaymentError(errorMessage);
-    setPaymentStatus("Waiting for retry at terminal...");
-    enqueueSnackbar(errorMessage, { variant: "error" });
+    // Provide specific error messages based on failure reason
+    let errorMessage = customMessage || "Payment failed. Please try again.";
 
-    // Clear the error message after a few seconds so it doesn't stay permanently
-    setTimeout(() => {
-      if (isProcessingPayment) {
-        setPaymentError(null);
-        setPaymentStatus("Processing payment at terminal...");
+    // Handle common failure reasons with user-friendly messages
+    if (customMessage) {
+      if (customMessage.toLowerCase().includes('insufficient funds')) {
+        errorMessage = "Payment failed: Insufficient funds. Please use a different payment method.";
+      } else if (customMessage.toLowerCase().includes('card_declined') || customMessage.toLowerCase().includes('declined')) {
+        errorMessage = "Payment failed: Card declined. Please try a different card or payment method.";
+      } else if (customMessage.toLowerCase().includes('expired')) {
+        errorMessage = "Payment failed: Card expired. Please use a different card.";
+      } else if (customMessage.toLowerCase().includes('incorrect')) {
+        errorMessage = "Payment failed: Incorrect card details. Please check your card information.";
+      } else if (customMessage.toLowerCase().includes('timeout') || customMessage.toLowerCase().includes('terminal')) {
+        errorMessage = "Payment failed at terminal. Please try again or use a different payment method.";
       }
-    }, 5000);
+    }
+
+    setPaymentError(errorMessage);
+    enqueueSnackbar(errorMessage, { variant: "error" });
+
+    console.log('❌ Payment failure handled:', {
+      paymentIntentId: paymentIntent?.id,
+      status: paymentIntent?.status,
+      errorMessage: errorMessage
+    });
   };
+
+
 
   const handlePaymentCancellation = (paymentIntent) => {
     setIsProcessingPayment(false);
@@ -211,14 +261,25 @@ const Bill = () => {
 
   const createOrderWithPayment = (paymentIntent) => {
     const actualPaymentMethod = paymentIntent.charges?.payment_method_details?.type || 'card_present';
+    const orderId = paymentIntent.metadata?.orderId;
 
-    const orderData = {
+    console.log('✅ Payment succeeded, order should be automatically created by backend');
+    console.log('📋 Order ID from payment metadata:', orderId);
+    console.log('💳 Payment Intent ID:', paymentIntent.id);
+
+    // Since the backend now automatically creates the order when payment succeeds,
+    // we just need to handle the UI updates and cleanup
+
+    // Create a mock order object for the invoice display
+    const mockOrderData = {
+      _id: orderId, // Use the orderId from payment metadata
+      orderId: orderId , // Ensure orderId is always present
       customerDetails: {
         name: customerName,
         phone: customerPhone,
         guests: customerData.guests || 1,
       },
-      paymentStatus: "In Progress",
+      paymentStatus: "Completed", // Payment succeeded
       bills: {
         total: total,
         tax: tax,
@@ -226,16 +287,41 @@ const Bill = () => {
       },
       items: cartItems,
       table: customerData.table?.tableId,
-      paymentMethod: paymentMethod, // "Online"
+      paymentMethod: "Online",
       paymentData: {
         stripe_payment_intent_id: paymentIntent.id,
-        stripe_charge_id: paymentIntent.charges?.id || null,
+        stripe_charge_id: paymentIntent.charges?.data?.[0]?.id || null,
         payment_method_type: actualPaymentMethod,
-        stripe_order_id: paymentIntent.metadata?.orderId || null, // Extract Order ID from metadata
+        stripe_order_id: orderId, // Add this for the invoice display
       },
+      createdAt: new Date().toISOString(),
     };
 
-    orderMutation.mutate(orderData);
+    setOrderInfo(mockOrderData);
+
+    // Clear cart and customer info immediately after successful payment
+    dispatch(removeAllItems());
+
+    // Only update table if there is a table assigned
+    if (customerData.table?.tableId) {
+      const tableData = {
+        status: "Booked",
+        orderId: orderId,
+        tableId: customerData.table.tableId,
+      };
+
+      setTimeout(() => {
+        tableUpdateMutation.mutate(tableData);
+      }, 1500);
+    } else {
+      // If no table to update, still remove customer info
+      dispatch(removeCustomer());
+    }
+
+    enqueueSnackbar("Order Placed Successfully!", {
+      variant: "success",
+    });
+    setShowInvoice(true);
   };
 
   // Show customer info modal before placing order
@@ -280,12 +366,27 @@ const Bill = () => {
             name: customerName,
             phone: customerPhone,
           },
+          orderData: {
+            items: cartItems.map(item => ({
+              id: item.id,
+              productId: item.id,
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity
+            })),
+            bills: {
+              total: total,
+              tax: tax,
+              totalWithTax: totalPriceWithTax,
+            },
+            paymentMethod: "stripe"
+          }
         };
 
         const { data } = await createPaymentIntent(reqData);
 
         // Start real-time payment monitoring
-        enqueueSnackbar("Payment created. Waiting for terminal processing...", { variant: "info" });
+        enqueueSnackbar(`Payment created (Order: ${data.orderId}). Waiting for terminal processing...`, { variant: "info" });
         startPaymentMonitoring(data.paymentIntent.id);
 
       } catch (error) {
@@ -296,7 +397,9 @@ const Bill = () => {
       }
     } else {
       // Cash payment - Place the order directly
+      const cashOrderId = `order_cash_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
       const orderData = {
+        orderId: cashOrderId, // Add orderId for cash orders
         customerDetails: {
           name: customerName,
           phone: customerPhone,
@@ -323,15 +426,15 @@ const Bill = () => {
     mutationFn: (reqData) => addOrder(reqData),
     onSuccess: (resData) => {
       const { data } = resData.data;
-      console.log('📦 Database response with created order data:', resData);
+      console.log('📦 Cash order created - Database response:', resData);
       console.log('📋 Order data extracted:', data);
       console.log('🆔 Order ID from database:', data._id);
 
       setOrderInfo(data);
-      
+
       // Clear cart and customer info immediately after successful order
       dispatch(removeAllItems());
-      
+
       // Only update table if there is a table assigned
       if (data.table) {
         const tableData = {
@@ -348,13 +451,16 @@ const Bill = () => {
         dispatch(removeCustomer());
       }
 
-      enqueueSnackbar("Order Placed!", {
+      enqueueSnackbar("Cash Order Placed!", {
         variant: "success",
       });
       setShowInvoice(true);
     },
     onError: (error) => {
-      console.log(error);
+      console.log('❌ Cash order creation failed:', error);
+      enqueueSnackbar("Failed to create cash order", {
+        variant: "error",
+      });
     },
   });
 
