@@ -1,14 +1,24 @@
 const mongoose = require("mongoose");
 
 const orderSchema = new mongoose.Schema({
-    orderId: String,
+    orderId: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    status: {
+        type: String,
+        enum: ["Pending", "Completed", "Failed"],
+        default: "Pending",
+        required: true
+    },
     customerDetails: {
         name: { type: String, required: false },
         phone: { type: String, required: false },
     },
     paymentStatus: {
         type: String,
-        default: "Completed",
+        default: "Pending",
         required: true
     },
     orderDate: {

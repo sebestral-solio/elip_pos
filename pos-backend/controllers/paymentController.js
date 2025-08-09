@@ -7,17 +7,34 @@ const Product = require("../models/productModel");
 const { updateProductQuantities } = require("./productController");
 const createHttpError = require("http-errors");
 
-// Temporary storage for pending orders (in production, consider using Redis or database)
-const pendingOrders = new Map();
+// Database persistence - no more memory storage needed
 
-// Cleanup expired pending orders (older than 1 hour)
-const cleanupExpiredOrders = () => {
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  for (const [orderId, orderData] of pendingOrders.entries()) {
-    if (orderData.createdAt < oneHourAgo) {
-      pendingOrders.delete(orderId);
-      console.log(`🧹 Cleaned up expired pending order: ${orderId}`);
+// Cleanup expired database records
+const cleanupExpiredOrders = async () => {
+  try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    // Clean up old pending orders (older than 1 hour)
+    const expiredOrders = await Order.deleteMany({
+      status: "Pending",
+      createdAt: { $lt: oneHourAgo }
+    });
+
+    if (expiredOrders.deletedCount > 0) {
+      console.log(`🧹 Cleaned up ${expiredOrders.deletedCount} expired pending orders`);
     }
+
+    // Clean up old failed payments (older than 1 hour)
+    const expiredPayments = await Payment.deleteMany({
+      status: "Failed",
+      createdAt: { $lt: oneHourAgo }
+    });
+
+    if (expiredPayments.deletedCount > 0) {
+      console.log(`🧹 Cleaned up ${expiredPayments.deletedCount} expired failed payments`);
+    }
+  } catch (error) {
+    console.error('Error during cleanup:', error);
   }
 };
 
@@ -110,22 +127,24 @@ const createPaymentIntent = async (req, res, next) => {
     // Generate unique order ID
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
-    // Store order data temporarily until payment succeeds
-    const completeOrderData = {
+    // Create order in database immediately with "Pending" status
+    const newOrder = new Order({
       orderId,
+      status: "Pending",
       customerDetails: {
         name: customerInfo?.name || '',
         phone: customerInfo?.phone || ''
       },
-      paymentStatus: "Pending", // Will be updated to "Completed" after payment succeeds
+      paymentStatus: "Pending",
+      orderDate: new Date(),
       items: orderData.items,
       bills: orderData.bills,
-      paymentMethod: orderData.paymentMethod || 'stripe',
-      createdAt: new Date()
-    };
+      paymentMethod: orderData.paymentMethod || 'stripe'
+    });
 
-    // Store in temporary storage
-    pendingOrders.set(orderId, completeOrderData);
+    // Save order to database
+    await newOrder.save();
+    console.log(`📋 Order saved to database with Pending status: ${orderId}`);
 
     // Always support both card_present and paynow payment methods
     // This allows the terminal to handle either payment method based on customer choice
@@ -275,6 +294,7 @@ const stripeWebhookHandler = async (req, res, next) => {
           // Retrieve the PaymentIntent to get latest status (automatic capture already happened)
           try {
             const paymentIntent = await stripeClient.paymentIntents.retrieve(paymentIntentId);
+            console.log(`💳 PaymentIntent retrieved: ${paymentIntent}`);
             console.log(`💰 Payment status: ${paymentIntent.status} - ${paymentIntent.amount / 100} ${paymentIntent.currency.toUpperCase()}`);
 
             // Save payment details to database (only if succeeded)
@@ -301,61 +321,54 @@ const stripeWebhookHandler = async (req, res, next) => {
               await newPayment.save();
               console.log(`💾 Payment saved to database: ${paymentIntent.id} (charge: ${charge?.id || 'none'})`);
 
-              // Create order after successful payment
+              // Update order status after successful payment
               const orderId = paymentIntent.metadata.orderId;
-              if (orderId && pendingOrders.has(orderId)) {
+              if (orderId) {
                 try {
-                  const orderData = pendingOrders.get(orderId);
+                  // Find the pending order in database
+                  const existingOrder = await Order.findOne({ orderId: orderId, status: "Pending" });
 
-                  // Create the order with payment reference
-                  const newOrder = new Order({
-                    orderId: orderId,
-                    customerDetails: orderData.customerDetails,
-                    paymentStatus: "Completed",
-                    orderDate: new Date(),
-                    bills: orderData.bills,
-                    items: orderData.items,
-                    paymentMethod: orderData.paymentMethod,
-                    paymentData: newPayment._id // Reference to the payment
-                  });
+                  if (existingOrder) {
+                    // Update order status to Completed and add payment reference
+                    existingOrder.status = "Completed";
+                    existingOrder.paymentStatus = "Completed";
+                    existingOrder.paymentData = newPayment._id;
 
-                  await newOrder.save();
-                  console.log(`📋 Order created successfully: ${orderId}`);
+                    await existingOrder.save();
+                    console.log(`📋 Order updated to Completed status: ${orderId}`);
 
-                  // Update product quantities after order is created
-                  if (orderData.items && orderData.items.length > 0) {
-                    try {
-                      console.log(`📦 Starting inventory update for order ${orderId} with ${orderData.items.length} items`);
-                      const updateResult = await updateProductQuantities(orderData.items);
+                    // Update product quantities after order is completed
+                    if (existingOrder.items && existingOrder.items.length > 0) {
+                      try {
+                        console.log(`📦 Starting inventory update for order ${orderId} with ${existingOrder.items.length} items`);
+                        const updateResult = await updateProductQuantities(existingOrder.items);
 
-                      if (updateResult.success) {
-                        console.log(`✅ Inventory update successful for ${orderId}:`, updateResult.summary);
-                        if (updateResult.updates) {
-                          updateResult.updates.forEach(update => {
-                            if (update.success) {
-                              console.log(`  📊 ${update.itemName}: ${update.oldQuantity} → ${update.newQuantity} (-${update.quantityOrdered})`);
-                            }
-                          });
+                        if (updateResult.success) {
+                          console.log(`✅ Inventory update successful for ${orderId}:`, updateResult.summary);
+                          if (updateResult.updates) {
+                            updateResult.updates.forEach(update => {
+                              if (update.success) {
+                                console.log(`  📊 ${update.itemName}: ${update.oldQuantity} → ${update.newQuantity} (-${update.quantityOrdered})`);
+                              }
+                            });
+                          }
+                        } else {
+                          console.error(`⚠️ Failed to update inventory for order ${orderId}:`, updateResult.error);
+                          // Order is completed but inventory wasn't updated - needs manual review
                         }
-                      } else {
-                        console.error(`⚠️ Failed to update inventory for order ${orderId}:`, updateResult.error);
-                        // Order is created but inventory wasn't updated - needs manual review
+                      } catch (inventoryError) {
+                        console.error(`❌ Inventory update error for order ${orderId}:`, inventoryError);
                       }
-                    } catch (inventoryError) {
-                      console.error(`❌ Inventory update error for order ${orderId}:`, inventoryError);
+                    } else {
+                      console.log(`⚠️ No items found for inventory update in order ${orderId}`);
                     }
                   } else {
-                    console.log(`⚠️ No items found for inventory update in order ${orderId}`);
+                    console.log(`⚠️ No pending order found in database for orderId: ${orderId}`);
                   }
-
-                  // Remove from pending orders
-                  pendingOrders.delete(orderId);
                 } catch (orderError) {
-                  console.error(`❌ Failed to create order for ${orderId}:`, orderError);
-                  // Payment succeeded but order creation failed - this needs manual intervention
+                  console.error(`❌ Failed to update order for ${orderId}:`, orderError);
+                  // Payment succeeded but order update failed - this needs manual intervention
                 }
-              } else {
-                console.log(`⚠️ No pending order data found for orderId: ${orderId}`);
               }
             }
           } catch (retrieveError) {
@@ -367,6 +380,47 @@ const stripeWebhookHandler = async (req, res, next) => {
       case 'terminal.reader.action_failed':
         const failedAction = event.data.object;
         console.log(`❌ Terminal action failed: ${failedAction.action.failure_code} - ${failedAction.action.failure_message}`);
+
+        // If it's a payment processing failure, save failure to database
+        if (failedAction.action.type === 'process_payment_intent') {
+          const failedPaymentIntentId = failedAction.action.process_payment_intent.payment_intent;
+          console.log(`💳 Payment processing failed at terminal: ${failedPaymentIntentId}`);
+
+          try {
+            // Save failed payment to database
+            const failedPayment = new Payment({
+              paymentIntentId: failedPaymentIntentId,
+              status: "Failed",
+              failureCode: failedAction.action.failure_code,
+              failureMessage: failedAction.action.failure_message,
+              metadata: {}
+            });
+
+            // Get PaymentIntent details to populate metadata
+            const paymentIntent = await stripeClient.paymentIntents.retrieve(failedPaymentIntentId);
+            failedPayment.metadata = paymentIntent.metadata || {};
+            failedPayment.amount = paymentIntent.amount / 100;
+            failedPayment.currency = paymentIntent.currency;
+
+            await failedPayment.save();
+            console.log(`📝 Saved terminal failure to database: ${failedPaymentIntentId}`);
+
+            // Update corresponding order to Failed status
+            const orderId = paymentIntent.metadata?.orderId;
+            if (orderId) {
+              const existingOrder = await Order.findOne({ orderId: orderId, status: "Pending" });
+              if (existingOrder) {
+                existingOrder.status = "Failed";
+                existingOrder.paymentStatus = "Failed";
+                existingOrder.paymentData = failedPayment._id;
+                await existingOrder.save();
+                console.log(`📋 Updated order to Failed status: ${orderId}`);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to save terminal failure to database:', error);
+          }
+        }
         break;
 
       case 'payment_intent.succeeded':
@@ -536,6 +590,12 @@ const checkPaymentStatus = async (req, res, next) => {
     // console.log(`📋 Payment metadata:`, paymentIntent.metadata);
     // console.log(`📊 Payment status: ${paymentIntent.status}`);
 
+    // Check if this payment has failed at terminal level (from database)
+    const terminalFailure = await Payment.findOne({
+      paymentIntentId: paymentIntentId,
+      status: "Failed"
+    });
+
     res.status(200).json({
       success: true,
       paymentIntent: {
@@ -545,7 +605,13 @@ const checkPaymentStatus = async (req, res, next) => {
         currency: paymentIntent.currency,
         charges: paymentIntent.charges?.data?.[0] || null,
         metadata: paymentIntent.metadata || {} // Include metadata with orderId
-      }
+      },
+      terminalFailure: terminalFailure ? {
+        failed: true,
+        failureCode: terminalFailure.failureCode,
+        failureMessage: terminalFailure.failureMessage,
+        timestamp: terminalFailure.createdAt
+      } : null
     });
   } catch (error) {
     console.log(error);
@@ -622,15 +688,12 @@ const capturePaymentIntent = async (req, res, next) => {
 // Helper function to get pending orders (for debugging)
 const getPendingOrders = async (req, res, next) => {
   try {
-    const pendingOrdersArray = Array.from(pendingOrders.entries()).map(([orderId, orderData]) => ({
-      orderId,
-      ...orderData
-    }));
+    const pendingOrders = await Order.find({ status: "Pending" }).sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
-      count: pendingOrdersArray.length,
-      data: pendingOrdersArray
+      count: pendingOrders.length,
+      data: pendingOrders
     });
   } catch (error) {
     console.log(error);
@@ -654,24 +717,28 @@ const checkPaymentFailureAndCleanup = async (req, res, next) => {
     console.log(`🔍 Checking payment failure for ${paymentIntentId}, orderId: ${orderId}`);
 
     // Check if this payment has been stuck in requires_payment_method for too long
-    // and if there's a pending order that should be cleaned up
+    // and if there's a pending order that should be marked as failed
     let shouldCleanup = false;
     let failureReason = null;
 
-    if (paymentIntent.status === 'requires_payment_method' && orderId && pendingOrders.has(orderId)) {
-      const orderData = pendingOrders.get(orderId);
-      const orderAge = Date.now() - orderData.createdAt.getTime();
+    if (paymentIntent.status === 'requires_payment_method' && orderId) {
+      const existingOrder = await Order.findOne({ orderId: orderId, status: "Pending" });
 
-      // If order is older than 2 minutes and still requires payment method, likely failed
-      if (orderAge > 2 * 60 * 1000) {
-        shouldCleanup = true;
-        failureReason = "Payment timeout at terminal";
-        console.log(`🧹 Payment likely failed - cleaning up order ${orderId} (age: ${Math.round(orderAge/1000)}s)`);
+      if (existingOrder) {
+        const orderAge = Date.now() - existingOrder.createdAt.getTime();
+
+        // If order is older than 2 minutes and still requires payment method, likely failed
+        if (orderAge > 2 * 60 * 1000) {
+          shouldCleanup = true;
+          failureReason = "Payment timeout at terminal";
+          console.log(`🧹 Payment likely failed - marking order as failed ${orderId} (age: ${Math.round(orderAge/1000)}s)`);
+
+          // Update order status to Failed
+          existingOrder.status = "Failed";
+          existingOrder.paymentStatus = "Failed";
+          await existingOrder.save();
+        }
       }
-    }
-
-    if (shouldCleanup && orderId) {
-      pendingOrders.delete(orderId);
     }
 
     res.status(200).json({

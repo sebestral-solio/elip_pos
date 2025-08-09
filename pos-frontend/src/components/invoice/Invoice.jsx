@@ -70,9 +70,9 @@ const Invoice = ({ orderInfo, setShowInvoice }) => {
             <p>
               <strong>Name:</strong> {orderInfo.customerDetails.name}
             </p>
-            <p>
+            {/* <p>
               <strong>Phone:</strong> {orderInfo.customerDetails.phone}
-            </p>
+            </p> */}
             <p>
               <strong>Guests:</strong> {orderInfo.customerDetails.guests}
             </p>
@@ -124,10 +124,10 @@ const Invoice = ({ orderInfo, setShowInvoice }) => {
                 <p>
                   <strong>Payment Method:</strong> {orderInfo.paymentMethod}
                 </p>
-                <p>
+                {/* <p>
                   <strong>Stripe Order ID:</strong>{" "}
                   {orderInfo.paymentData?.stripe_order_id || "N/A"}
-                </p>
+                </p> */}
                 <p>
                   <strong>Stripe Payment ID:</strong>{" "}
                   {orderInfo.paymentData?.stripe_payment_intent_id || "N/A"}

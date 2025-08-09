@@ -107,7 +107,7 @@ const updateProductQuantities = async (orderItems) => {
 
     // Extract product IDs and quantities from order items
     const updates = orderItems.map(item => ({
-      productId: item.id || item.productId, // Handle both id and productId fields
+      productId:item.productId, // Handle both id and productId fields
       quantity: item.quantity,
       itemName: item.name
     }));

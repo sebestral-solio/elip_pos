@@ -69,10 +69,10 @@ const Bill = () => {
       return;
     }
 
-    if (!customerPhone.trim() || customerPhone.length < 10) {
-      enqueueSnackbar("Please enter a valid phone number", { variant: "warning" });
-      return;
-    }
+    // if (!customerPhone.trim() || customerPhone.length < 10) {
+    //   enqueueSnackbar("Please enter a valid phone number", { variant: "warning" });
+    //   return;
+    // }
 
     // Save customer info to Redux state
     dispatch(setCustomerInfo({ customerName, customerPhone }));
@@ -89,7 +89,6 @@ const Bill = () => {
     setPaymentError(null);
 
     let paymentTimeout;
-    let consecutiveRequiresPaymentMethod = 0; // Track consecutive requires_payment_method responses
     let pollCount = 0;
 
     // Start polling for payment status
@@ -97,8 +96,17 @@ const Bill = () => {
       pollCount++;
       try {
         const { data } = await checkPaymentStatus(paymentIntentId);
-        const { paymentIntent } = data;
+        const { paymentIntent, terminalFailure } = data;
 
+        // Check for terminal failure FIRST on every poll
+        if (terminalFailure && terminalFailure.failed) {
+          console.log('❌ Terminal failure detected, stopping polling immediately');
+          console.log('🔍 Terminal failure info:', terminalFailure);
+          clearInterval(pollInterval);
+          clearTimeout(paymentTimeout);
+          handlePaymentFailure(paymentIntent, terminalFailure.failureMessage);
+          return;
+        }
 
         if (paymentIntent.status === 'succeeded') {
           console.log('✅ Payment succeeded, stopping polling');
@@ -131,44 +139,21 @@ const Bill = () => {
           clearTimeout(paymentTimeout);
           handlePaymentCapture(paymentIntent);
         } else if (paymentIntent.status === 'requires_payment_method') {
-          consecutiveRequiresPaymentMethod++;
-
-          // If we've been getting requires_payment_method for too long, check with backend
-          if (consecutiveRequiresPaymentMethod >= 6 && pollCount > 6) { // 30+ seconds of requires_payment_method
-            try {
-              // Check with backend if this payment has failed at terminal level
-              const { data: failureCheck } = await axios.get(`/api/payment/check-failure/${paymentIntentId}`);
-
-              if (failureCheck.shouldStop) {
-                console.log('❌ Backend confirmed payment failed at terminal, stopping polling');
-                clearInterval(pollInterval);
-                clearTimeout(paymentTimeout);
-                handlePaymentFailure(paymentIntent, failureCheck.failureReason || "Payment failed at terminal. Please try again.");
-                return;
-              }
-            } catch (failureCheckError) {
-              console.error('Error checking payment failure:', failureCheckError);
-            }
-          }
-
-          // If we've been stuck for too long without backend confirmation, stop anyway
-          if (consecutiveRequiresPaymentMethod >= 12) { // 60+ seconds
-            console.log('❌ Payment stuck in requires_payment_method too long, stopping polling');
-            clearInterval(pollInterval);
-            clearTimeout(paymentTimeout);
-            handlePaymentFailure(paymentIntent, "Payment timeout at terminal. Please try again.");
-          } else {
-            // Continue polling - waiting for customer to present payment method
-            setPaymentStatus("Waiting for payment method at terminal...");
-          }
+          // Continue polling - waiting for customer to present payment method
+          // Terminal failures are now detected immediately via terminalFailure check above
+          setPaymentStatus("Waiting for payment method at terminal...");
         } else if (paymentIntent.status === 'processing') {
-          // Reset counter if status changes to processing
-          consecutiveRequiresPaymentMethod = 0;
           setPaymentStatus("Processing payment...");
         } else {
-          // Reset counter for any other status
-          consecutiveRequiresPaymentMethod = 0;
           setPaymentStatus("Processing payment at terminal...");
+        }
+
+        // Check for absolute timeout (2 minutes)
+        if (pollCount >= 24) { // 24 polls × 5 seconds = 2 minutes
+          console.log('⏰ Payment polling absolute timeout (2 minutes)');
+          clearInterval(pollInterval);
+          clearTimeout(paymentTimeout);
+          handlePaymentFailure(paymentIntent, "Payment timeout. Please try again.");
         }
         // Continue polling for other statuses (requires_payment_method, processing, etc.)
       } catch (error) {
@@ -562,7 +547,7 @@ const Bill = () => {
                 />
               </div>
               
-              <div className="mb-6">
+              {/* <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-300 mb-1">Phone Number</label>
                 <input
                   type="tel"
@@ -574,7 +559,7 @@ const Bill = () => {
                   required
                 />
                 <p className="text-xs text-gray-400 mt-1">Enter a 10-digit phone number</p>
-              </div>
+              </div> */}
               
               <div className="flex justify-end">
                 <button
