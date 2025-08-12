@@ -100,21 +100,21 @@ const deleteProduct = async (req, res, next) => {
   }
 };
 
-// Update product quantities after order placement
-const updateProductQuantities = async (orderItems) => {
+// Update product availability status based on available stock (quantity - sold)
+const updateProductAvailability = async (orderItems) => {
   try {
-    console.log('📦 Starting inventory update for items:', orderItems);
+    console.log('📦 Starting availability update for items:', orderItems);
 
-    // Extract product IDs and quantities from order items
+    // Extract product IDs from order items
     const updates = orderItems.map(item => ({
-      productId:item.productId, // Handle both id and productId fields
+      productId: item.productId, // Handle both id and productId fields
       quantity: item.quantity,
       itemName: item.name
     }));
 
-    console.log('📋 Processing updates:', updates);
+    console.log('📋 Processing availability updates:', updates);
 
-    // Process each product update
+    // Process each product availability update
     const updateResults = await Promise.all(
       updates.map(async ({ productId, quantity, itemName }) => {
         try {
@@ -126,34 +126,34 @@ const updateProductQuantities = async (orderItems) => {
             return { success: false, productId, itemName, message: 'Product not found' };
           }
 
-          console.log(`📊 Current stock for ${product.name}: ${product.quantity}, ordering: ${quantity}`);
+          // Calculate available stock (quantity - sold)
+          const availableStock = Math.max(0, (product.quantity || 0) - (product.sold || 0));
 
-          // Calculate new quantity (ensure it doesn't go below 0)
-          const newQuantity = Math.max(0, product.quantity - quantity);
+          console.log(`📊 Stock info for ${product.name}: Total: ${product.quantity}, Sold: ${product.sold}, Available: ${availableStock}`);
 
-          // Update product quantity and availability status
+          // Update only availability status based on available stock
           const updatedProduct = await Product.findByIdAndUpdate(
             productId,
             {
-              quantity: newQuantity,
-              available: newQuantity > 0
+              available: availableStock > 0
             },
             { new: true }
           );
 
-          console.log(`✅ Updated ${product.name}: ${product.quantity} → ${newQuantity} (available: ${updatedProduct.available})`);
+          console.log(`✅ Updated availability for ${product.name}: ${updatedProduct.available ? 'Available' : 'Out of Stock'} (${availableStock} remaining)`);
 
           return {
             success: true,
             productId,
             itemName: product.name,
-            oldQuantity: product.quantity,
-            newQuantity: updatedProduct.quantity,
+            totalQuantity: product.quantity,
+            soldQuantity: product.sold,
+            availableStock: availableStock,
             available: updatedProduct.available,
             quantityOrdered: quantity
           };
         } catch (itemError) {
-          console.error(`❌ Error updating product ${productId}:`, itemError);
+          console.error(`❌ Error updating product availability ${productId}:`, itemError);
           return { success: false, productId, itemName, message: itemError.message };
         }
       })
@@ -163,14 +163,14 @@ const updateProductQuantities = async (orderItems) => {
     const successful = updateResults.filter(r => r.success);
     const failed = updateResults.filter(r => !r.success);
 
-    console.log(`📈 Inventory update complete: ${successful.length} successful, ${failed.length} failed`);
+    console.log(`📈 Availability update complete: ${successful.length} successful, ${failed.length} failed`);
     if (failed.length > 0) {
       console.log('❌ Failed updates:', failed);
     }
 
     return { success: true, updates: updateResults, summary: { successful: successful.length, failed: failed.length } };
   } catch (error) {
-    console.error('❌ Error updating product quantities:', error);
+    console.error('❌ Error updating product availability:', error);
     return { success: false, error: error.message };
   }
 };
@@ -181,5 +181,5 @@ module.exports = {
   createProduct,
   updateProduct,
   deleteProduct,
-  updateProductQuantities
+  updateProductAvailability
 };

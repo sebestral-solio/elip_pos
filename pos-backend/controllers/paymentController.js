@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const Payment = require("../models/paymentModel");
 const Order = require("../models/orderModel");
 const Product = require("../models/productModel");
-const { updateProductQuantities } = require("./productController");
+const { updateProductAvailability } = require("./productController");
 const createHttpError = require("http-errors");
 
 // Database persistence - no more memory storage needed
@@ -50,6 +50,9 @@ const validateInventory = async (orderItems) => {
     for (const item of orderItems) {
       const product = await Product.findById(item.id || item.productId);
 
+      // Calculate available stock (total quantity - sold)
+      const availableStock = product ? Math.max(0, (product.quantity || 0) - (product.sold || 0)) : 0;
+
       // If product not found or not enough quantity
       if (!product) {
         invalidItems.push({
@@ -59,20 +62,20 @@ const validateInventory = async (orderItems) => {
           available: 0,
           reason: "Product not found"
         });
-      } else if (!product.available) {
+      } else if (!product.available || availableStock === 0) {
         invalidItems.push({
           id: item.id || item.productId,
           name: product.name,
           requested: item.quantity,
-          available: product.quantity,
+          available: availableStock,
           reason: "Product not available"
         });
-      } else if (product.quantity < item.quantity) {
+      } else if (availableStock < item.quantity) {
         invalidItems.push({
           id: item.id || item.productId,
           name: product.name,
           requested: item.quantity,
-          available: product.quantity,
+          available: availableStock,
           reason: "Insufficient quantity"
         });
       }
@@ -166,6 +169,24 @@ const createPaymentIntent = async (req, res, next) => {
     console.log(`💳 PaymentIntent created: ${paymentIntent.id}`);
     console.log(`📋 PaymentIntent metadata:`, paymentIntent.metadata);
     console.log(`🆔 Order ID in metadata: ${paymentIntent.metadata?.orderId}`);
+
+    // Create Payment record in database with "pending" status
+    const newPayment = new Payment({
+      paymentIntentId: paymentIntent.id,
+      status: "pending",
+      amount: amount,
+      currency: paymentIntent.currency,
+      paymentMethodType: "stripe_terminal", // Will be updated when charge succeeds
+      metadata: {
+        orderId: orderId,
+        customerName: customerInfo?.name || '',
+        customerPhone: customerInfo?.phone || ''
+      },
+      chargeData: [] // Will be populated when charge.succeeded webhook fires
+    });
+
+    await newPayment.save();
+    console.log(`💳 Payment record created with pending status: ${paymentIntent.id}`);
 
     // Process the PaymentIntent on the terminal reader
     const readerId = config.stripeTerminalReaderId;
@@ -289,87 +310,66 @@ const stripeWebhookHandler = async (req, res, next) => {
 
         if (succeededAction.action.type === 'process_payment_intent') {
           const paymentIntentId = succeededAction.action.process_payment_intent.payment_intent;
-          console.log(`💳 Payment confirmed at terminal: ${paymentIntentId}`);
+          console.log(`💳 Terminal action succeeded for PaymentIntent: ${paymentIntentId}`);
 
-          // Retrieve the PaymentIntent to get latest status (automatic capture already happened)
           try {
-            const paymentIntent = await stripeClient.paymentIntents.retrieve(paymentIntentId);
-            console.log(`💳 PaymentIntent retrieved: ${paymentIntent}`);
-            console.log(`💰 Payment status: ${paymentIntent.status} - ${paymentIntent.amount / 100} ${paymentIntent.currency.toUpperCase()}`);
+            // Find existing Payment record that was created during PaymentIntent creation
+            const existingPayment = await Payment.findOne({ paymentIntentId: paymentIntentId });
 
-            // Save payment details to database (only if succeeded)
-            if (paymentIntent.status === 'succeeded') {
-              const charge = paymentIntent.charges?.data?.[0];
+            if (existingPayment) {
+              // Update Payment status from "pending" to "succeeded"
+              existingPayment.status = "succeeded";
+              await existingPayment.save();
+              console.log(`💳 Payment status updated to succeeded: ${paymentIntentId}`);
 
-              if (!charge) {
-                console.log(`⚠️ No charge data available for PaymentIntent: ${paymentIntent.id}`);
-              }
-
-              const newPayment = new Payment({
-                paymentIntentId: paymentIntent.id,
-                chargeId: charge?.id || null,
-                amount: paymentIntent.amount / 100,
-                currency: paymentIntent.currency,
-                status: paymentIntent.status,
-                paymentMethodType: charge?.payment_method_details?.type || 'unknown',
-                paymentMethod: charge?.payment_method || null,
-                receiptUrl: charge?.receipt_url || null,
-                metadata: paymentIntent.metadata,
-                createdAt: new Date(paymentIntent.created * 1000)
-              });
-
-              await newPayment.save();
-              console.log(`💾 Payment saved to database: ${paymentIntent.id} (charge: ${charge?.id || 'none'})`);
-
-              // Update order status after successful payment
-              const orderId = paymentIntent.metadata.orderId;
+              // Get orderId from payment metadata to update order
+              const orderId = existingPayment.metadata?.orderId;
               if (orderId) {
-                try {
-                  // Find the pending order in database
-                  const existingOrder = await Order.findOne({ orderId: orderId, status: "Pending" });
+                // Find the pending order in database
+                const existingOrder = await Order.findOne({ orderId: orderId, status: "Pending" });
 
-                  if (existingOrder) {
-                    // Update order status to Completed and add payment reference
-                    existingOrder.status = "Completed";
-                    existingOrder.paymentStatus = "Completed";
-                    existingOrder.paymentData = newPayment._id;
+                if (existingOrder) {
+                  // Update order status to Completed and add payment reference
+                  existingOrder.status = "Completed";
+                  existingOrder.paymentStatus = "Completed";
+                  existingOrder.paymentData = existingPayment._id;
 
-                    await existingOrder.save();
-                    console.log(`📋 Order updated to Completed status: ${orderId}`);
+                  await existingOrder.save();
+                  console.log(`📋 Order updated to Completed status: ${orderId}`);
 
-                    // Update product quantities after order is completed
-                    if (existingOrder.items && existingOrder.items.length > 0) {
-                      try {
-                        console.log(`📦 Starting inventory update for order ${orderId} with ${existingOrder.items.length} items`);
-                        const updateResult = await updateProductQuantities(existingOrder.items);
+                  // Update product availability after order is completed
+                  if (existingOrder.items && existingOrder.items.length > 0) {
+                    try {
+                      console.log(`📦 Starting availability update for order ${orderId} with ${existingOrder.items.length} items`);
+                      const updateResult = await updateProductAvailability(existingOrder.items);
 
-                        if (updateResult.success) {
-                          console.log(`✅ Inventory update successful for ${orderId}:`, updateResult.summary);
-                          if (updateResult.updates) {
-                            updateResult.updates.forEach(update => {
-                              if (update.success) {
-                                console.log(`  📊 ${update.itemName}: ${update.oldQuantity} → ${update.newQuantity} (-${update.quantityOrdered})`);
-                              }
-                            });
-                          }
-                        } else {
-                          console.error(`⚠️ Failed to update inventory for order ${orderId}:`, updateResult.error);
-                          // Order is completed but inventory wasn't updated - needs manual review
+                      if (updateResult.success) {
+                        console.log(`✅ Availability update successful for ${orderId}:`, updateResult.summary);
+                        if (updateResult.updates) {
+                          updateResult.updates.forEach(update => {
+                            if (update.success) {
+                              console.log(`  📊 ${update.itemName}: Available: ${update.availableStock}, Status: ${update.available ? 'Available' : 'Out of Stock'}`);
+                            }
+                          });
                         }
-                      } catch (inventoryError) {
-                        console.error(`❌ Inventory update error for order ${orderId}:`, inventoryError);
+                      } else {
+                        console.error(`⚠️ Failed to update availability for order ${orderId}:`, updateResult.error);
+                        // Order is completed but availability wasn't updated - needs manual review
                       }
-                    } else {
-                      console.log(`⚠️ No items found for inventory update in order ${orderId}`);
+                    } catch (availabilityError) {
+                      console.error(`❌ Availability update error for order ${orderId}:`, availabilityError);
                     }
                   } else {
-                    console.log(`⚠️ No pending order found in database for orderId: ${orderId}`);
+                    console.log(`⚠️ No items found for availability update in order ${orderId}`);
                   }
-                } catch (orderError) {
-                  console.error(`❌ Failed to update order for ${orderId}:`, orderError);
-                  // Payment succeeded but order update failed - this needs manual intervention
+                } else {
+                  console.log(`⚠️ No pending order found in database for orderId: ${orderId}`);
                 }
+              } else {
+                console.log(`⚠️ No orderId found in payment metadata for PaymentIntent: ${paymentIntentId}`);
               }
+            } else {
+              console.log(`⚠️ No existing payment record found for PaymentIntent: ${paymentIntentId}`);
             }
           } catch (retrieveError) {
             console.error('Failed to retrieve payment:', retrieveError);
@@ -387,22 +387,20 @@ const stripeWebhookHandler = async (req, res, next) => {
           console.log(`💳 Payment processing failed at terminal: ${failedPaymentIntentId}`);
 
           try {
-            // Save failed payment to database
-            const failedPayment = new Payment({
-              paymentIntentId: failedPaymentIntentId,
-              status: "Failed",
-              failureCode: failedAction.action.failure_code,
-              failureMessage: failedAction.action.failure_message,
-              metadata: {}
-            });
-
-            // Get PaymentIntent details to populate metadata
+            // Update existing payment record with failure details
             const paymentIntent = await stripeClient.paymentIntents.retrieve(failedPaymentIntentId);
-            failedPayment.metadata = paymentIntent.metadata || {};
-            failedPayment.amount = paymentIntent.amount / 100;
-            failedPayment.currency = paymentIntent.currency;
-
-            await failedPayment.save();
+            const failedPayment = await Payment.findOneAndUpdate(
+              { paymentIntentId: failedPaymentIntentId },
+              {
+                status: "Failed",
+                failureCode: failedAction.action.failure_code,
+                failureMessage: failedAction.action.failure_message,
+                metadata: paymentIntent.metadata || {},
+                amount: paymentIntent.amount / 100,
+                currency: paymentIntent.currency
+              },
+              { new: true }
+            );
             console.log(`📝 Saved terminal failure to database: ${failedPaymentIntentId}`);
 
             // Update corresponding order to Failed status
@@ -436,12 +434,177 @@ const stripeWebhookHandler = async (req, res, next) => {
       case 'charge.succeeded':
         const charge = event.data.object;
         console.log(`💳 Charge succeeded: ${charge.amount / 100} ${charge.currency.toUpperCase()}`);
+
+        try {
+          // Find existing payment record by paymentIntentId
+          const existingPayment = await Payment.findOne({
+            paymentIntentId: charge.payment_intent
+          });
+
+          if (existingPayment) {
+            // Extract charge details based on payment method type
+            const chargeDetails = {
+              chargeId: charge.id,
+              status: charge.status,
+              paymentMethodType: charge.payment_method_details?.type || 'unknown',
+              receiptUrl: charge.receipt_url || null,
+              amountCaptured: charge.amount_captured,
+              createdAt: new Date(charge.created * 1000) // Convert Unix timestamp to Date
+            };
+
+            // Add charge data to the chargeData array
+            existingPayment.chargeData.push(chargeDetails);
+            await existingPayment.save();
+
+            console.log(`📊 Charge data added to payment ${existingPayment.paymentIntentId}:`, {
+              chargeId: chargeDetails.chargeId,
+              paymentMethodType: chargeDetails.paymentMethodType,
+              amountCaptured: chargeDetails.amountCaptured
+            });
+
+            // Increment sold count for products in the order
+            const orderId = existingPayment.metadata?.orderId;
+            if (orderId) {
+              try {
+                const order = await Order.findOne({ orderId: orderId });
+                if (order && order.items && order.items.length > 0) {
+                  console.log(`📈 Incrementing sold counts for order ${orderId} with ${order.items.length} items`);
+
+                  // Use Promise.all for concurrent atomic updates
+                  const soldUpdatePromises = order.items.map(async (item) => {
+                    try {
+                      const updatedProduct = await Product.findByIdAndUpdate(
+                        item.productId,
+                        { $inc: { sold: item.quantity } },
+                        { new: true }
+                      );
+
+                      if (updatedProduct) {
+                        console.log(`📊 ${updatedProduct.name}: sold count increased by ${item.quantity} (total sold: ${updatedProduct.sold})`);
+                        return { success: true, productName: updatedProduct.name, quantitySold: item.quantity };
+                      } else {
+                        console.log(`⚠️ Product not found for ID: ${item.productId}`);
+                        return { success: false, productId: item.productId, error: 'Product not found' };
+                      }
+                    } catch (error) {
+                      console.error(`❌ Error updating sold count for product ${item.productId}:`, error);
+                      return { success: false, productId: item.productId, error: error.message };
+                    }
+                  });
+
+                  const soldUpdateResults = await Promise.all(soldUpdatePromises);
+                  const successfulUpdates = soldUpdateResults.filter(result => result.success);
+                  const failedUpdates = soldUpdateResults.filter(result => !result.success);
+
+                  console.log(`✅ Sold count updates completed: ${successfulUpdates.length} successful, ${failedUpdates.length} failed`);
+
+                  if (failedUpdates.length > 0) {
+                    console.error(`⚠️ Failed sold count updates:`, failedUpdates);
+                  }
+
+                  // Update product availability status after sold counts are incremented
+                  try {
+                    const availabilityResult = await updateProductAvailability(order.items);
+                    if (availabilityResult.success) {
+                      console.log(`✅ Product availability updated for order ${orderId}`);
+                    } else {
+                      console.error(`⚠️ Failed to update product availability for order ${orderId}:`, availabilityResult.error);
+                    }
+                  } catch (availabilityError) {
+                    console.error(`❌ Error updating product availability for order ${orderId}:`, availabilityError);
+                  }
+                } else {
+                  console.log(`⚠️ No order found or no items in order for orderId: ${orderId}`);
+                }
+              } catch (error) {
+                console.error(`❌ Error incrementing sold counts for order ${orderId}:`, error);
+              }
+            } else {
+              console.log(`⚠️ No orderId found in payment metadata for charge: ${charge.id}`);
+            }
+          } else {
+            console.log(`⚠️ No payment record found for PaymentIntent: ${charge.payment_intent}`);
+          }
+        } catch (error) {
+          console.error('❌ Error processing charge.succeeded webhook:', error);
+        }
         break;
 
+      // case 'charge.failed':
+      //   const failedCharge = event.data.object;
+      //   console.log(`❌ Charge failed: ${failedCharge.failure_message || failedCharge.outcome?.seller_message || 'Unknown error'}`);
+      //   try {
+      //     // Find existing payment record by paymentIntentId
+      //     const existingPayment = await Payment.findOne({
+      //       paymentIntentId: charge.payment_intent
+      //     });
+
+      //     if (existingPayment) {
+      //       // Extract charge details based on payment method type
+      //       const chargeDetails = {
+      //         chargeId: charge.id,
+      //         status: charge.status,
+      //         paymentMethodType: charge.payment_method_details?.type || 'unknown',
+      //         receiptUrl: charge.receipt_url || null,
+      //         amountCaptured: charge.amount_captured,
+      //         createdAt: new Date(charge.created * 1000) // Convert Unix timestamp to Date
+      //       };
+
+      //       // Add charge data to the chargeData array
+      //       existingPayment.chargeData.push(chargeDetails);
+      //       await existingPayment.save();
+
+      //       console.log(`📊 Charge data added to payment ${existingPayment.paymentIntentId}:`, {
+      //         chargeId: chargeDetails.chargeId,
+      //         paymentMethodType: chargeDetails.paymentMethodType,
+      //         amountCaptured: chargeDetails.amountCaptured
+      //       });
+      //     } else {
+      //       console.log(`⚠️ No payment record found for PaymentIntent: ${charge.payment_intent}`);
+      //     }
+      //   } catch (error) {
+      //     console.error('❌ Error processing charge.succeeded webhook:', error);
+      //   }
+      //   break;
+
+
       case 'charge.failed':
-        const failedCharge = event.data.object;
-        console.log(`❌ Charge failed: ${failedCharge.failure_message || failedCharge.outcome?.seller_message || 'Unknown error'}`);
-        break;
+    const failedCharge = event.data.object;
+    console.log(`❌ Charge failed: ${failedCharge.failure_message || failedCharge.outcome?.seller_message || 'Unknown error'}`);
+    try {
+      // Find existing payment record by paymentIntentId
+      const existingPayment = await Payment.findOne({
+        paymentIntentId: failedCharge.payment_intent
+      });
+
+      if (existingPayment) {
+        // Extract charge details based on payment method type
+        const chargeDetails = {
+          chargeId: failedCharge.id,
+          status: failedCharge.status,
+          paymentMethodType: failedCharge.payment_method_details?.type || 'unknown',
+          receiptUrl: failedCharge.receipt_url || null,
+          amountCaptured: failedCharge.amount_captured,
+          createdAt: new Date(failedCharge.created * 1000) // Convert Unix timestamp to Date
+        };
+
+        // Add charge data to the chargeData array
+        existingPayment.chargeData.push(chargeDetails);
+        await existingPayment.save();
+
+        console.log(`📊 Charge data added to payment ${existingPayment.paymentIntentId}:`, {
+          chargeId: chargeDetails.chargeId,
+          paymentMethodType: chargeDetails.paymentMethodType,
+          amountCaptured: chargeDetails.amountCaptured
+        });
+      } else {
+        console.log(`⚠️ No payment record found for PaymentIntent: ${failedCharge.payment_intent}`);
+      }
+    } catch (error) {
+      console.error('❌ Error processing charge.failed webhook:', error);
+    }
+    break;
+
 
       case 'payment_intent.payment_failed':
         const failedPayment = event.data.object;
@@ -731,7 +894,7 @@ const checkPaymentFailureAndCleanup = async (req, res, next) => {
         if (orderAge > 2 * 60 * 1000) {
           shouldCleanup = true;
           failureReason = "Payment timeout at terminal";
-          console.log(`🧹 Payment likely failed - marking order as failed ${orderId} (age: ${Math.round(orderAge/1000)}s)`);
+          console.log(`🧹 Payment likely failed - marking order as failed ${orderId} (age: ${Math.round(orderAge / 1000)}s)`);
 
           // Update order status to Failed
           existingOrder.status = "Failed";

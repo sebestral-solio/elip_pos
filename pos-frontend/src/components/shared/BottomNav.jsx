@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FaHome, FaShoppingBasket } from "react-icons/fa";
+import { FaHome, FaShoppingBasket, FaCog } from "react-icons/fa";
 import { MdOutlineReorder, MdInventory } from "react-icons/md";
 import { CiCircleMore } from "react-icons/ci";
 import { BiSolidDish } from "react-icons/bi";
@@ -20,6 +20,7 @@ const BottomNav = () => {
   // Get user role from Redux store
   const { role } = useSelector((state) => state.user);
   const isAdmin = role === "Admin";
+  const isAdminOrCashier = role === "Admin" || role === "Cashier";
   
 
   const openModal = () => setIsModalOpen(true);
@@ -50,40 +51,52 @@ const BottomNav = () => {
           onClick={() => navigate("/")}
           className={`flex items-center justify-center font-bold ${
             isActive("/") ? "text-white bg-red-600" : "text-gray-700"
-          } w-[300px] rounded-[20px]`}
+          } flex-1 rounded-[20px]`}
         >
           <FaHome className="inline mr-2" size={20} /> <p>Home</p>
         </button>
       )}
-      
-      {/* Orders button - only visible to admin */}
-      {isAdmin && (
+
+      {/* Orders button - visible to admin and cashier */}
+      {isAdminOrCashier && (
         <button
           onClick={() => navigate("/orders")}
           className={`flex items-center justify-center font-bold ${
             isActive("/orders") ? "text-white bg-red-600" : "text-gray-700"
-          } w-[300px] rounded-[20px]`}
+          } flex-1 rounded-[20px]`}
         >
           <MdOutlineReorder className="inline mr-2" size={20} /> <p>Orders</p>
         </button>
       )}
-      
+
+      {/* Configuration button - only visible to admin */}
+      {isAdmin && (
+        <button
+          onClick={() => navigate("/configuration")}
+          className={`flex items-center justify-center font-bold ${
+            isActive("/configuration") ? "text-white bg-red-600" : "text-gray-700"
+          } flex-1 rounded-[20px]`}
+        >
+          <FaCog className="inline mr-2" size={20} /> <p>Configuration</p>
+        </button>
+      )}
+
       {/* Products button - visible to both admin and cashier */}
       <button
         onClick={() => navigate("/products")}
         className={`flex items-center justify-center font-bold ${
           isActive("/products") ? "text-white bg-red-600" : "text-gray-700"
-        } w-[${isAdmin ? '300px' : '50%'}] rounded-[20px]`}
+        } flex-1 rounded-[20px]`}
       >
         <MdInventory className="inline mr-2" size={20} /> <p>Products</p>
       </button>
-      
+
       {/* Store button - visible to both admin and cashier */}
       <button
         onClick={() => navigate("/menu")}
         className={`flex items-center justify-center font-bold ${
           isActive("/menu") ? "text-white bg-red-600" : "text-gray-700"
-        } w-[${isAdmin ? '300px' : '50%'}] rounded-[20px]`}
+        } flex-1 rounded-[20px]`}
       >
         <FaShoppingBasket className="inline mr-2" size={20} /> <p>Store</p>
       </button>

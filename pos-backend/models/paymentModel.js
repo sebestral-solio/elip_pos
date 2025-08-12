@@ -11,7 +11,7 @@ const paymentSchema = new mongoose.Schema({
     currency: String,
     status: {
         type: String,
-        enum: ["succeeded", "failed", "pending", "cancelled"],
+        enum: ["succeeded", "failed", "pending", "cancelled","Failed"],
         required: true
     },
     paymentMethodType: String, // 'card_present', 'paynow', etc.
@@ -26,6 +26,30 @@ const paymentSchema = new mongoose.Schema({
         customerName: String,
         customerPhone: String
     },
+    chargeData: [{
+        chargeId: {
+            type: String,
+            required: true
+        },
+        status: {
+            type: String,
+            enum: ["succeeded", "failed", "pending","Failed"],
+            required: true
+        },
+        paymentMethodType: {
+            type: String,
+            required: true
+        },
+        receiptUrl: String,
+        amountCaptured: {
+            type: Number,
+            required: true
+        },
+        createdAt: {
+            type: Date,
+            required: true
+        }
+    }],
     createdAt: {
         type: Date,
         default: Date.now

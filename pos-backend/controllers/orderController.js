@@ -1,7 +1,7 @@
 const createHttpError = require("http-errors");
 const Order = require("../models/orderModel");
 const { default: mongoose } = require("mongoose");
-const { updateProductQuantities } = require("./productController");
+const { updateProductAvailability } = require("./productController");
 const Product = require("../models/productModel");
 
 const addOrder = async (req, res, next) => {
@@ -23,15 +23,15 @@ const addOrder = async (req, res, next) => {
     const order = new Order(req.body);
     await order.save();
     
-    // Update product quantities after order is placed
+    // Update product availability after order is placed
     if (req.body.items && req.body.items.length > 0) {
-      const updateResult = await updateProductQuantities(req.body.items);
-      console.log('Inventory update result:', updateResult);
-      
-      // Even if inventory update fails, we still return the order
+      const updateResult = await updateProductAvailability(req.body.items);
+      console.log('Availability update result:', updateResult);
+
+      // Even if availability update fails, we still return the order
       // but log the error for administrators to handle
       if (!updateResult.success) {
-        console.error('Failed to update inventory after order:', updateResult.error);
+        console.error('Failed to update availability after order:', updateResult.error);
       }
     }
     
@@ -47,11 +47,14 @@ const addOrder = async (req, res, next) => {
 const validateInventory = async (orderItems) => {
   try {
     const invalidItems = [];
-    
+
     // Check each item in the order
     for (const item of orderItems) {
       const product = await Product.findById(item.id);
-      
+
+      // Calculate available stock (total quantity - sold)
+      const availableStock = product ? Math.max(0, (product.quantity || 0) - (product.sold || 0)) : 0;
+
       // If product not found or not enough quantity
       if (!product) {
         invalidItems.push({
@@ -61,20 +64,20 @@ const validateInventory = async (orderItems) => {
           available: 0,
           reason: "Product not found"
         });
-      } else if (!product.available) {
+      } else if (!product.available || availableStock === 0) {
         invalidItems.push({
           id: item.id,
           name: product.name,
           requested: item.quantity,
-          available: product.quantity,
+          available: availableStock,
           reason: "Product not available"
         });
-      } else if (product.quantity < item.quantity) {
+      } else if (availableStock < item.quantity) {
         invalidItems.push({
           id: item.id,
           name: product.name,
           requested: item.quantity,
-          available: product.quantity,
+          available: availableStock,
           reason: "Insufficient quantity"
         });
       }

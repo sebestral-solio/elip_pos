@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { getTotalPrice } from "../../redux/slices/cartSlice";
 import {
@@ -13,8 +13,11 @@ import { enqueueSnackbar } from "notistack";
 import { useMutation } from "@tanstack/react-query";
 import { removeAllItems } from "../../redux/slices/cartSlice";
 import { removeCustomer, setCustomerInfo } from "../../redux/slices/customerSlice";
+import { fetchTaxRate } from "../../redux/slices/configSlice";
 import Invoice from "../invoice/Invoice";
 import { FaTimes } from "react-icons/fa";
+import { motion } from "framer-motion";
+import { FaCircleXmark } from "react-icons/fa6";
 
 function loadStripeTerminal() {
   return new Promise((resolve) => {
@@ -41,9 +44,16 @@ const Bill = () => {
   const customerData = useSelector((state) => state.customer);
   const cartItems = useSelector((state) => state.cart.items);
   const total = useSelector(getTotalPrice);
-  const taxRate = 5.25;
+  const taxRate = useSelector((state) => state.config?.taxRate || 5.25);
   const tax = (total * taxRate) / 100;
   const totalPriceWithTax = total + tax;
+
+  // Fetch tax rate when component mounts
+  useEffect(() => {
+    dispatch(fetchTaxRate());
+  }, [dispatch]);
+
+  console.log('Bill component - Tax rate:', taxRate);
 
   const [paymentMethod, setPaymentMethod] = useState("");
   const [showInvoice, setShowInvoice] = useState(false);
@@ -149,7 +159,7 @@ const Bill = () => {
         }
 
         // Check for absolute timeout (2 minutes)
-        if (pollCount >= 24) { // 24 polls × 5 seconds = 2 minutes
+        if (pollCount >= 50) { // 24 polls × 5 seconds = 2 minutes
           console.log('⏰ Payment polling absolute timeout (2 minutes)');
           clearInterval(pollInterval);
           clearTimeout(paymentTimeout);
@@ -286,6 +296,11 @@ const Bill = () => {
 
     // Clear cart and customer info immediately after successful payment
     dispatch(removeAllItems());
+    dispatch(removeCustomer());
+
+    // Also clear local state
+    setCustomerName("");
+    setCustomerPhone("");
 
     // Only update table if there is a table assigned
     if (customerData.table?.tableId) {
@@ -298,9 +313,6 @@ const Bill = () => {
       setTimeout(() => {
         tableUpdateMutation.mutate(tableData);
       }, 1500);
-    } else {
-      // If no table to update, still remove customer info
-      dispatch(removeCustomer());
     }
 
     enqueueSnackbar("Order Placed Successfully!", {
@@ -419,6 +431,11 @@ const Bill = () => {
 
       // Clear cart and customer info immediately after successful order
       dispatch(removeAllItems());
+      dispatch(removeCustomer());
+
+      // Also clear local state
+      setCustomerName("");
+      setCustomerPhone("");
 
       // Only update table if there is a table assigned
       if (data.table) {
@@ -431,9 +448,6 @@ const Bill = () => {
         setTimeout(() => {
           tableUpdateMutation.mutate(tableData);
         }, 1500);
-      } else {
-        // If no table to update, still remove customer info
-        dispatch(removeCustomer());
       }
 
       enqueueSnackbar("Cash Order Placed!", {
@@ -453,8 +467,6 @@ const Bill = () => {
     mutationFn: (reqData) => updateTable(reqData),
     onSuccess: (resData) => {
       console.log(resData);
-      dispatch(removeCustomer());
-      dispatch(removeAllItems());
     },
     onError: (error) => {
       console.log(error);
@@ -463,7 +475,7 @@ const Bill = () => {
 
   return (
     <>
-      <div className="absolute bottom-0 left-0 right-0 bg-[#f2f3f5] py-4 shadow-lg rounded-b-lg">
+      <div className="absolute bottom-0 left-0 right-0 bg-[#f2f3f5] py-4 shadow-lg rounded-b-lg" style={{borderTop: "3px solid black",}}>
         <div className="flex items-center justify-between px-5">
           <p className="text-xs text-[black] font-medium">
             Items({cartItems.length})
@@ -473,7 +485,7 @@ const Bill = () => {
           </h1>
         </div>
         <div className="flex items-center justify-between px-5 mt-2">
-          <p className="text-xs text-[black] font-medium">Tax(5.25%)</p>
+          <p className="text-xs text-[black] font-medium">Tax({taxRate}%)</p>
           <h1 className="text-[black] text-md font-bold">₹{tax.toFixed(2)}</h1>
         </div>
         <div className="flex items-center justify-between px-5 mt-2">
@@ -503,7 +515,7 @@ const Bill = () => {
           </button>
         </div>
 
-        <div className="flex items-center gap-3 px-5 mt-4">
+        <div className="flex  items-center gap-3 px-5 mt-4">
           <button className="bg-[#025cca] px-4 py-3 w-full rounded-lg text-[#f5f5f5] font-semibold text-lg">
             Print Receipt
           </button>
@@ -622,7 +634,21 @@ const Bill = () => {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 text-center">
             <div className="mb-6">
-              <div className="text-red-500 text-6xl mb-4">❌</div>
+              <motion.div
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1.2, opacity: 1 }}
+                transition={{ duration: 0.5, type: "spring", stiffness: 150 }}
+                className="w-12 h-12 border-8 border-red-500 rounded-full flex items-center justify-center shadow-lg bg-red-500 mx-auto mb-4"
+              >
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.3, duration: 0.3 }}
+                  className="text-2xl"
+                >
+                  <FaCircleXmark className="text-white" />
+                </motion.span>
+              </motion.div>
               <h3 className="text-xl font-semibold text-gray-800 mb-2">Payment Failed</h3>
               <p className="text-gray-600">{paymentError}</p>
             </div>

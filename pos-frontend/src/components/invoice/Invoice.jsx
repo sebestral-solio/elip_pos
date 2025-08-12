@@ -1,28 +1,142 @@
 import React, { useRef } from "react";
+import { useSelector } from "react-redux";
 import { motion } from "framer-motion";
 import { FaCheck } from "react-icons/fa6";
 
 const Invoice = ({ orderInfo, setShowInvoice }) => {
   const invoiceRef = useRef(null);
+  const taxRate = useSelector((state) => state.config.taxRate);
+
   const handlePrint = () => {
     const printContent = invoiceRef.current.innerHTML;
     const WinPrint = window.open("", "", "width=900,height=650");
 
+    // WinPrint.document.write(`
+    //         <html>
+    //           <head>
+    //             <title>Order Receipt</title>
+    //             <style>
+    //               body { font-family: Arial, sans-serif; padding: 20px; }
+    //               .receipt-container { width: 300px; border: 1px solid #ddd; padding: 10px; }
+    //               h2 { text-align: center; }
+    //             </style>
+    //           </head>
+    //           <body>
+    //             ${printContent}
+    //           </body>
+    //         </html>
+    //       `);
+
     WinPrint.document.write(`
-            <html>
-              <head>
-                <title>Order Receipt</title>
-                <style>
-                  body { font-family: Arial, sans-serif; padding: 20px; }
-                  .receipt-container { width: 300px; border: 1px solid #ddd; padding: 10px; }
-                  h2 { text-align: center; }
-                </style>
-              </head>
-              <body>
-                ${printContent}
-              </body>
-            </html>
-          `);
+  <html>
+    <head>
+      <title>Order Receipt</title>
+      <style>
+        body {
+          font-family: 'Courier New', monospace;
+          padding: 15px;
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.3;
+          width: 300px;
+        }
+        .dashed-line {
+          border-top: 1px dashed #000;
+          margin: 8px 0;
+        }
+        .receipt-header {
+          text-align: center;
+          font-weight: bold;
+          font-size: 16px;
+          margin: 8px 0;
+        }
+        .receipt-info {
+          text-align: center;
+          font-size: 11px;
+          margin: 5px 0;
+        }
+        .customer-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 11px;
+          margin: 3px 0;
+        }
+        .item-row {
+          display: flex;
+          justify-content: space-between;
+          margin: 3px 0;
+          font-size: 11px;
+        }
+        .total-row {
+          display: flex;
+          justify-content: space-between;
+          font-weight: bold;
+          margin: 15px 0;
+          font-size: 12px;
+        }
+        .footer {
+          text-align: center;
+          margin-top: 20px;
+        }
+        .company-name {
+          font-weight: bold;
+          font-size: 12px;
+          margin: 10px 0;
+        }
+        .thank-you {
+          font-weight: bold;
+          font-size: 14px;
+          margin-top: 15px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="dashed-line"></div>
+      <div class="receipt-header">RECEIPT</div>
+      <div class="dashed-line"></div>
+
+      <div class="receipt-info">
+        <div>Terminal # N/A&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Date: ${new Date().toLocaleDateString('en-GB')}</div>
+        <div>${new Date().toLocaleDateString('en-US', { weekday: 'long' })}, ${new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' })}</div>
+      </div>
+
+      <div class="customer-row">
+        <span>Customer Name</span>
+        <span>${orderInfo.customerDetails.name}</span>
+      </div>
+      <div class="customer-row">
+        <span>ID</span>
+        <span>${orderInfo.orderId}</span>
+      </div>
+
+      <div class="dashed-line"></div>
+
+      ${orderInfo.items.map((item, index) =>
+        `<div class="item-row">
+          <span>${index + 1}. ${item.name}</span>
+          <span>${item.price}₹</span>
+        </div>`
+      ).join('')}
+
+      <div class="dashed-line"></div>
+
+      <div class="total-row">
+        <span>Tax(${taxRate}%)</span>
+        <span>${Math.round(orderInfo.bills.tax)}₹</span>
+      </div>
+      <div class="dashed-line"></div>
+      <div class="total-row">
+        <span>Total</span>
+        <span>${Math.round(orderInfo.bills.totalWithTax)}₹</span>
+      </div>
+      <div class="dashed-line"></div>
+      <div class="footer">
+        <div class="company-name">Company Name</div>
+        <div class="thank-you">THANK YOU!</div>
+      </div>
+    </body>
+  </html>
+`);
 
     WinPrint.document.close();
     WinPrint.focus();
@@ -73,9 +187,9 @@ const Invoice = ({ orderInfo, setShowInvoice }) => {
             {/* <p>
               <strong>Phone:</strong> {orderInfo.customerDetails.phone}
             </p> */}
-            <p>
+            {/* <p>
               <strong>Guests:</strong> {orderInfo.customerDetails.guests}
-            </p>
+            </p> */}
           </div>
 
           {/* Items Summary */}

@@ -4,11 +4,39 @@ import { FaNotesMedical } from "react-icons/fa6";
 import { useDispatch, useSelector } from "react-redux";
 import { removeItem, updateItemQuantity } from "../../redux/slices/cartSlice";
 import { enqueueSnackbar } from "notistack";
+import { useQuery } from "@tanstack/react-query";
+import { getProducts } from "../../https";
 
 const CartInfo = () => {
   const cartItems = useSelector((state) => state.cart.items);
   const scrolLRef = useRef();
   const dispatch = useDispatch();
+
+  // Fetch products data to get current stock information
+  const { data: productsData } = useQuery({
+    queryKey: ["products"],
+    queryFn: async () => {
+      return await getProducts();
+    }
+  });
+
+  // Helper function to calculate available stock
+  const getAvailableStock = (productId) => {
+    const products = productsData?.data?.data || [];
+    const product = products.find(p => p._id === productId);
+    if (!product) return 0;
+
+    const sold = product.sold || 0;
+    const total = product.quantity || 0;
+    return Math.max(0, total - sold);
+  };
+
+  // Helper function to get product name
+  const getProductName = (productId) => {
+    const products = productsData?.data?.data || [];
+    const product = products.find(p => p._id === productId);
+    return product ? product.name : 'Unknown Product';
+  };
 
   useEffect(() => {
     if(scrolLRef.current){
@@ -24,9 +52,22 @@ const CartInfo = () => {
   }
 
   const incrementQuantity = (item) => {
+    const availableStock = getAvailableStock(item.id);
+    const newQuantity = item.quantity + 1;
+
+    // Check if the new quantity would exceed available stock
+    if (newQuantity > availableStock) {
+      const productName = getProductName(item.id);
+      enqueueSnackbar(
+        `Cannot add more ${productName}. Only ${availableStock} available in stock.`,
+        { variant: "error" }
+      );
+      return;
+    }
+
     dispatch(updateItemQuantity({
       id: item.id,
-      quantity: item.quantity + 1
+      quantity: newQuantity
     }));
   }
 
@@ -48,9 +89,9 @@ const CartInfo = () => {
       <h1 className="text-lg text-gray-800 font-semibold tracking-wide">
         Order Details
       </h1>
-      <div className="mt-4 overflow-y-scroll scrollbar-hide h-[380px] pb-40" ref={scrolLRef} >
+      <div className="mt-4 overflow-y-scroll scrollbar-hide h-[380px] pb-20" ref={scrolLRef} >
         {cartItems.length === 0 ? (
-          <p className="text-gray-500 text-sm flex justify-center items-center h-[380px]">Your cart is empty. Start adding items!</p>
+          <p className="text-gray-500 text-sm flex justify-center items-center h-full">Your cart is empty. Start adding items!</p>
         ) : cartItems.map((item) => {
           return (
             <div key={item.id} className="bg-white border border-gray-200 rounded-lg shadow-sm px-4 py-4 mb-2">

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { useDispatch } from "react-redux";
+import React, { useState, useEffect, useMemo } from "react";
+import { useDispatch, useSelector } from "react-redux";
 import { addItems } from "../../redux/slices/cartSlice";
 import { FaShoppingCart } from "react-icons/fa";
 import { useQuery } from "@tanstack/react-query";
@@ -8,7 +8,22 @@ import { enqueueSnackbar } from "notistack";
 
 const ProductList = () => {
   const [itemQuantities, setItemQuantities] = useState({});
+  const [selectedCategory, setSelectedCategory] = useState("All");
   const dispatch = useDispatch();
+  const cartItems = useSelector((state) => state.cart.items);
+
+  // Helper function to calculate available stock
+  const getAvailableStock = (product) => {
+    const sold = product.sold || 0;
+    const total = product.quantity || 0;
+    return Math.max(0, total - sold); // Ensure we don't show negative stock
+  };
+
+  // Helper function to get current quantity in cart for a product
+  const getCartQuantity = (productId) => {
+    const cartItem = cartItems.find(item => item.id === productId);
+    return cartItem ? cartItem.quantity : 0;
+  };
   
   const { data: productsData, isLoading, isError } = useQuery({
     queryKey: ["products"],
@@ -26,14 +41,21 @@ const ProductList = () => {
   const increment = (id, maxAvailable) => {
     setItemQuantities(prev => {
       const currentQuantity = prev[id] || 0;
-      // Don't allow incrementing beyond available stock or max of 10
-      const maxAllowed = Math.min(maxAvailable || 10, 10);
-      if (currentQuantity >= maxAllowed) {
-        if (maxAvailable && currentQuantity >= maxAvailable) {
-          enqueueSnackbar(`Cannot add more. Only ${maxAvailable} in stock.`, { variant: "warning" });
-        }
+      const cartQuantity = getCartQuantity(id);
+      const totalQuantityAfterIncrement = currentQuantity + 1 + cartQuantity;
+
+      // Don't allow incrementing beyond available stock
+      if (totalQuantityAfterIncrement > maxAvailable) {
+        enqueueSnackbar(`Cannot add more. Only ${maxAvailable} available in stock. You already have ${cartQuantity} in cart.`, { variant: "warning" });
         return prev;
       }
+
+      // Also respect the max of 10 limit
+      const maxAllowed = Math.min(maxAvailable || 10, 10);
+      if (currentQuantity >= maxAllowed) {
+        return prev;
+      }
+
       return { ...prev, [id]: currentQuantity + 1 };
     });
   };
@@ -50,18 +72,29 @@ const ProductList = () => {
     // If quantity is 0, add 1 by default
     const quantity = itemQuantities[product._id] || 0;
     const quantityToAdd = quantity === 0 ? 1 : quantity;
-    
-    // Check if requested quantity is available in stock
-    if (product.quantity < quantityToAdd) {
-      enqueueSnackbar(
-        `Insufficient stock! Only ${product.quantity} ${product.name} available.`, 
-        { variant: "error" }
-      );
+    const availableStock = getAvailableStock(product);
+    const cartQuantity = getCartQuantity(product._id);
+    const totalQuantityAfterAdd = quantityToAdd + cartQuantity;
+
+    // Check if total quantity (new + existing in cart) exceeds available stock
+    if (totalQuantityAfterAdd > availableStock) {
+      const remainingStock = Math.max(0, availableStock - cartQuantity);
+      if (remainingStock === 0) {
+        enqueueSnackbar(
+          `Cannot add more ${product.name}. You already have ${cartQuantity} in cart and only ${availableStock} available.`,
+          { variant: "error" }
+        );
+      } else {
+        enqueueSnackbar(
+          `Cannot add ${quantityToAdd} ${product.name}. You can only add ${remainingStock} more (${cartQuantity} already in cart, ${availableStock} available).`,
+          { variant: "error" }
+        );
+      }
       return;
     }
-    
+
     // Check if product is available
-    if (product.available === false) {
+    if (product.available === false || availableStock === 0) {
       enqueueSnackbar(`${product.name} is currently out of stock!`, { variant: "error" });
       return;
     }
@@ -83,14 +116,39 @@ const ProductList = () => {
     enqueueSnackbar(`${name} added to cart`, { variant: "success" });
   };
 
-  // Group products by category
-  const groupedProducts = productsData?.data?.data?.reduce((acc, product) => {
-    if (!acc[product.category]) {
-      acc[product.category] = [];
+  // Extract unique categories from products with counts
+  const categories = useMemo(() => {
+    if (!productsData?.data?.data) return [];
+    const uniqueCategories = [...new Set(productsData.data.data.map(product => product.category))];
+    return ["All", ...uniqueCategories.sort()];
+  }, [productsData]);
+
+  // Get product count for each category
+  const getCategoryCount = (category) => {
+    if (!productsData?.data?.data) return 0;
+    if (category === "All") return productsData.data.data.length;
+    return productsData.data.data.filter(product => product.category === category).length;
+  };
+
+  // Filter products based on selected category
+  const filteredProducts = useMemo(() => {
+    if (!productsData?.data?.data) return [];
+    if (selectedCategory === "All") {
+      return productsData.data.data;
     }
-    acc[product.category].push(product);
-    return acc;
-  }, {}) || {};
+    return productsData.data.data.filter(product => product.category === selectedCategory);
+  }, [productsData, selectedCategory]);
+
+  // Group filtered products by category (for display when "All" is selected)
+  const groupedProducts = useMemo(() => {
+    return filteredProducts.reduce((acc, product) => {
+      if (!acc[product.category]) {
+        acc[product.category] = [];
+      }
+      acc[product.category].push(product);
+      return acc;
+    }, {});
+  }, [filteredProducts]);
 
   if (isLoading) {
     return <div className="text-center py-10 text-white">Loading products...</div>;
@@ -102,67 +160,159 @@ const ProductList = () => {
   return (
     <div className="p-4 min-h-screen bg-[#f2f3f5]">
       <h1 className="text-2xl font-bold text-black mb-6">Products</h1>
+
+      {/* Category Filter Buttons */}
+      {hasProducts && categories.length > 0 && (
+        <div className="mb-6">
+          <div className="flex flex-wrap gap-2 mb-4">
+            {categories.map((category) => (
+              <button
+                key={category}
+                onClick={() => setSelectedCategory(category)}
+                className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                  selectedCategory === category
+                    ? "bg-red-600 text-white shadow-md"
+                    : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-300"
+                }`}
+              >
+                {category} ({getCategoryCount(category)})
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {hasProducts ? (
-        // Render products from API
-        Object.entries(groupedProducts).map(([category, products]) => (
-          <div key={category} className="mb-8">
-            <h2 className="text-xl font-bold text-black mb-4">{category}</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {products.map((product) => (
-                <div
-                  key={product._id}
-                  className="bg-white p-4 rounded-lg shadow-md hover:bg-gray-100 transition-colors cursor-pointer border border-gray-200"
-                  onClick={() => product.available && handleAddToCart(product)}
-                >
-                  <div className="flex justify-between items-start">
-                    <h3 className="text-black font-medium text-lg">{product.name}</h3>
-                    {/* <div className="bg-red-500 text-white p-2 rounded-lg">
-                      <FaShoppingCart size={20} />
-                    </div> */}
-                  </div>
-                  
-                  {product.description && (
-                    <p className="text-gray-600 text-sm mt-1">{product.description}</p>
-                  )}
-                  
-                  <div className="flex justify-between items-center mt-4" onClick={(e) => e.stopPropagation()}>
-                    <p className="text-black font-bold">₹{product.price}</p>
-                    {/* <div className="flex items-center bg-red-500 px-3 py-2 rounded-lg">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          decrement(product._id);
-                        }}
-                        className="text-white text-xl"
-                      >
-                        &minus;
-                      </button>
-                      <span className="text-white mx-3">
-                        {itemQuantities[product._id] || 0}
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          increment(product._id, product.quantity);
-                        }}
-                        className="text-white text-xl"
-                        disabled={!product.available}
-                      >
-                        &#43;
-                      </button>
-                    </div> */}
-                  </div>
-                  
-                  {product.available === false && (
-                    <div className="mt-2 bg-red-100 text-red-600 text-xs py-1 px-2 rounded text-center">
-                      Out of Stock
+        selectedCategory === "All" ? (
+          // Render all products grouped by category
+          Object.entries(groupedProducts).map(([category, products]) => (
+            <div key={category} className="mb-8">
+              <h2 className="text-xl font-bold text-black mb-4">{category}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {products.map((product) => {
+                const availableStock = getAvailableStock(product);
+                const isOutOfStock = product.available === false || availableStock === 0;
+
+                return (
+                  <div
+                    key={product._id}
+                    className="bg-white p-4 rounded-lg shadow-md hover:bg-gray-100 transition-colors cursor-pointer border border-gray-200"
+                    onClick={() => !isOutOfStock && handleAddToCart(product)}
+                  >
+                    <div className="flex justify-between items-start">
+                      <h3 className="text-black font-medium text-lg">{product.name}</h3>
+                      {/* <div className="bg-red-500 text-white p-2 rounded-lg">
+                        <FaShoppingCart size={20} />
+                      </div> */}
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {product.description && (
+                      <p className="text-gray-600 text-sm mt-1">{product.description}</p>
+                    )}
+
+                    <div className="flex justify-between items-center mt-4" onClick={(e) => e.stopPropagation()}>
+                      <p className="text-black font-bold">₹{product.price}</p>
+                      {/* <div className="flex items-center bg-red-500 px-3 py-2 rounded-lg">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            decrement(product._id);
+                          }}
+                          className="text-white text-xl"
+                        >
+                          &minus;
+                        </button>
+                        <span className="text-white mx-3">
+                          {itemQuantities[product._id] || 0}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            increment(product._id, availableStock);
+                          }}
+                          className="text-white text-xl"
+                          disabled={isOutOfStock}
+                        >
+                          &#43;
+                        </button>
+                      </div> */}
+                    </div>
+
+                    {/* Stock information */}
+                    <div className="mt-2 flex justify-between items-center text-xs">
+                      <span className="text-gray-500">
+                        Available: {availableStock}
+                      </span>
+                      {/* <div className="flex gap-2">
+                        {getCartQuantity(product._id) > 0 && (
+                          <span className="text-blue-600 font-medium">
+                            In Cart: {getCartQuantity(product._id)}
+                          </span>
+                        )}
+                        {product.sold > 0 && (
+                          <span className="text-gray-500">
+                            Sold: {product.sold}
+                          </span>
+                        )}
+                      </div> */}
+                    </div>
+
+                    {isOutOfStock && (
+                      <div className="mt-2 bg-red-100 text-red-600 text-xs py-1 px-2 rounded text-center">
+                        Out of Stock
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))
+        ) : (
+          // Render filtered products for specific category
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-black mb-4">{selectedCategory}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filteredProducts.map((product) => {
+                const availableStock = getAvailableStock(product);
+                const isOutOfStock = product.available === false || availableStock === 0;
+
+                return (
+                  <div
+                    key={product._id}
+                    className="bg-white p-4 rounded-lg shadow-md hover:bg-gray-100 transition-colors cursor-pointer border border-gray-200"
+                    onClick={() => !isOutOfStock && handleAddToCart(product)}
+                  >
+                    <div className="flex justify-between items-start">
+                      <h3 className="text-black font-medium text-lg">{product.name}</h3>
+                    </div>
+
+                    {product.description && (
+                      <p className="text-gray-600 text-sm mt-1">{product.description}</p>
+                    )}
+
+                    <div className="flex justify-between items-center mt-4" onClick={(e) => e.stopPropagation()}>
+                      <p className="text-black font-bold">₹{product.price}</p>
+                    </div>
+
+                    {/* Stock information */}
+                    <div className="mt-2 flex justify-between items-center text-xs">
+                      <span className="text-gray-500">
+                        Available: {availableStock}
+                      </span>
+                    </div>
+
+                    {isOutOfStock && (
+                      <div className="mt-2 bg-red-100 text-red-600 text-xs py-1 px-2 rounded text-center">
+                        Out of Stock
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )
       ) : (
         <div className="text-center py-10 text-white">
           <p>No products available. Please add products to the inventory.</p>

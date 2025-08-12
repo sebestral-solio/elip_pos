@@ -45,3 +45,7 @@ export const addProduct = (data) => axiosWrapper.post("/api/products", data);
 export const updateProduct = ({ productId, ...productData }) =>
   axiosWrapper.put(`/api/products/${productId}`, productData);
 export const deleteProduct = (productId) => axiosWrapper.delete(`/api/products/${productId}`);
+
+// Configuration Endpoints
+export const updateTaxRate = (data) => axiosWrapper.put("/api/user/config/tax-rate", data);
+export const getTaxRate = () => axiosWrapper.get("/api/user/config/tax-rate");

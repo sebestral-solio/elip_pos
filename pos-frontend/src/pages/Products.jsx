@@ -19,6 +19,13 @@ const Products = () => {
     image: ""
   });
 
+  // Helper function to calculate available stock
+  const getAvailableStock = (product) => {
+    const sold = product.sold || 0;
+    const total = product.quantity || 0;
+    return Math.max(0, total - sold); // Ensure we don't show negative stock
+  };
+
   const queryClient = useQueryClient();
 
   // Fetch products
@@ -139,7 +146,7 @@ const Products = () => {
   const products = productsData?.data?.data || [];
 
   return (
-    <div className="bg-white min-h-screen pb-16">
+    <div className="bg-white min-h-screen pb-16 pt-20">
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-gray-800">Product Management</h1>
@@ -159,47 +166,54 @@ const Products = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {products.length > 0 ? (
-              products.map((product) => (
-                <div
-                  key={product._id}
-                  className="bg-white border border-gray-200 shadow-md rounded-lg p-4 relative"
-                >
-                  <div className="absolute top-2 right-2 flex gap-2">
-                    <button
-                      onClick={() => handleEdit(product)}
-                      className="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors"
-                    >
-                      <FaEdit />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(product._id)}
-                      className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700 transition-colors"
-                    >
-                      <FaTrash />
-                    </button>
+              products.map((product) => {
+                const availableStock = getAvailableStock(product);
+                const isOutOfStock = product.available === false || availableStock === 0;
+
+                return (
+                  <div
+                    key={product._id}
+                    className="bg-white border border-gray-200 shadow-md rounded-lg p-4 relative"
+                  >
+                    <div className="absolute top-2 right-2 flex gap-2">
+                      <button
+                        onClick={() => handleEdit(product)}
+                        className="bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition-colors"
+                      >
+                        <FaEdit />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(product._id)}
+                        className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700 transition-colors"
+                      >
+                        <FaTrash />
+                      </button>
+                    </div>
+                    <h2 className="text-xl font-semibold text-gray-800 mt-2">{product.name}</h2>
+                    <p className="text-gray-600 text-sm mb-2">{product.description}</p>
+                    <div className="flex justify-between items-center mt-4">
+                      <span className="text-gray-800 font-bold">₹{product.price}</span>
+                      <span className="text-gray-600 text-sm">{product.category}</span>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="text-gray-600 text-sm">
+                        <div>Total Stock: {product.quantity || 0}</div>
+                        <div>Available: {availableStock}</div>
+                        {product.sold > 0 && <div>Sold: {product.sold}</div>}
+                      </div>
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-medium ${
+                          !isOutOfStock
+                            ? "bg-green-500 text-white"
+                            : "bg-red-500 text-white"
+                        }`}
+                      >
+                        {!isOutOfStock ? "Available" : "Out of Stock"}
+                      </span>
+                    </div>
                   </div>
-                  <h2 className="text-xl font-semibold text-gray-800 mt-2">{product.name}</h2>
-                  <p className="text-gray-600 text-sm mb-2">{product.description}</p>
-                  <div className="flex justify-between items-center mt-4">
-                    <span className="text-gray-800 font-bold">₹{product.price}</span>
-                    <span className="text-gray-600 text-sm">{product.category}</span>
-                  </div>
-                  <div className="flex justify-between items-center mt-2">
-                    <span className="text-gray-600 text-sm">
-                      Stock: {product.quantity || 0}
-                    </span>
-                    <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${
-                        product.available
-                          ? "bg-green-500 text-white"
-                          : "bg-red-500 text-white"
-                      }`}
-                    >
-                      {product.available ? "Available" : "Out of Stock"}
-                    </span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="col-span-3 text-center py-10 text-gray-800">
                 No products available. Add some products to get started.

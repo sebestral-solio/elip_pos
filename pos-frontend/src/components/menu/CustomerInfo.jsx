@@ -10,7 +10,7 @@ const CustomerInfo = () => {
   const itemCount = cartItems.length;
 
   return (
-    <div className="flex items-center justify-between px-4 py-3">
+    <div className="flex items-center justify-between px-4 py-3 p-4 pt-20">
       <div className="flex flex-col items-start">
         <h1 className="text-md text-[#fffff] font-semibold tracking-wide">
           Quick Checkout

@@ -5,7 +5,7 @@ import {
   useLocation,
   Navigate,
 } from "react-router-dom";
-import { Home, Auth, Orders, Tables, Menu, Dashboard } from "./pages";
+import { Home, Auth, Orders, Tables, Menu, Dashboard, Configuration } from "./pages";
 import Products from "./pages/Products";
 import Header from "./components/shared/Header";
 import { useSelector } from "react-redux";
@@ -36,8 +36,16 @@ function Layout() {
         <Route
           path="/orders"
           element={
-            <AdminRoute>
+            <AdminCashierRoute>
               <Orders />
+            </AdminCashierRoute>
+          }
+        />
+        <Route
+          path="/configuration"
+          element={
+            <AdminRoute>
+              <Configuration />
             </AdminRoute>
           }
         />
@@ -90,16 +98,31 @@ function ProtectedRoutes({ children }) {
 
 function AdminRoute({ children }) {
   const { isAuth, role } = useSelector((state) => state.user);
-  
+
   if (!isAuth) {
     return <Navigate to="/auth" />;
   }
-  
+
   // If not an admin, redirect to menu page
   if (role !== "Admin") {
     return <Navigate to="/menu" />;
   }
-  
+
+  return children;
+}
+
+function AdminCashierRoute({ children }) {
+  const { isAuth, role } = useSelector((state) => state.user);
+
+  if (!isAuth) {
+    return <Navigate to="/auth" />;
+  }
+
+  // Allow both Admin and Cashier roles
+  if (role !== "Admin" && role !== "Cashier") {
+    return <Navigate to="/menu" />;
+  }
+
   return children;
 }
 

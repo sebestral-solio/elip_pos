@@ -19,7 +19,7 @@ const Menu = () => {
   return (
     <section className="bg-white h-[calc(100vh-5rem)] overflow-hidden flex gap-3">
       {/* Left Div */}
-      <div className="flex-[3] overflow-y-auto">
+      <div className="flex-[3] overflow-y-auto pt-20">
         {/* <div className="flex items-center justify-between px-10 py-4">
           <div className="flex items-center gap-4">
             <BackButton />
@@ -45,15 +45,19 @@ const Menu = () => {
         <ProductList />
       </div>
       {/* Right Div */}
-      <div className="flex-[1] bg-[#f2f3f5] mt-4 mr-3 h-[calc(100vh-10rem)] rounded-lg pt-2 relative">
-        {/* Customer Info */}
-        <CustomerInfo />
-        <hr className="border-[#2a2a2a] border-t-2" />
-        {/* Cart Items */}
-        <CartInfo />
-        <hr className="border-[#2a2a2a] border-t-2" />
-        {/* Bills */}
-        <Bill />
+      <div className="flex-[1] relative flex flex-col">
+        {/* Customer Info - Fixed at the top */}
+        <div className="flex-none mt-2">
+          <CustomerInfo/>
+        </div>
+        {/* Cart Items - Scrollable middle section */}
+        <div className="flex-grow" style={{backgroundColor: "#f2f3f5", minHeight: "300px", maxHeight: "calc(100vh - 300px)", borderTop: "3px solid black", borderBottom: "3px solid black",}}>
+          <CartInfo />
+        </div>
+        {/* Bills - Fixed at the bottom */}
+        <div className="flex-none" style={{backgroundColor: "#f2f3f5",}}>
+          <Bill />
+        </div>
       </div>
 
       <BottomNav />
