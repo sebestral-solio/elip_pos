@@ -14,6 +14,10 @@ const ProductList = () => {
 
   // Helper function to calculate available stock
   const getAvailableStock = (product) => {
+    // Unlimited products have infinite stock
+    if (product.unlimited) {
+      return Infinity;
+    }
     const sold = product.sold || 0;
     const total = product.quantity || 0;
     return Math.max(0, total - sold); // Ensure we don't show negative stock
@@ -38,20 +42,23 @@ const ProductList = () => {
     }
   }, [isError]);
 
-  const increment = (id, maxAvailable) => {
+  const increment = (id, maxAvailable, isUnlimited = false) => {
     setItemQuantities(prev => {
       const currentQuantity = prev[id] || 0;
       const cartQuantity = getCartQuantity(id);
       const totalQuantityAfterIncrement = currentQuantity + 1 + cartQuantity;
 
-      // Don't allow incrementing beyond available stock
-      if (totalQuantityAfterIncrement > maxAvailable) {
-        enqueueSnackbar(`Cannot add more. Only ${maxAvailable} available in stock. You already have ${cartQuantity} in cart.`, { variant: "warning" });
-        return prev;
+      // Skip stock validation for unlimited products
+      if (!isUnlimited) {
+        // Don't allow incrementing beyond available stock for limited products
+        if (totalQuantityAfterIncrement > maxAvailable) {
+          enqueueSnackbar(`Cannot add more. Only ${maxAvailable} available in stock. You already have ${cartQuantity} in cart.`, { variant: "warning" });
+          return prev;
+        }
       }
 
-      // Also respect the max of 10 limit
-      const maxAllowed = Math.min(maxAvailable || 10, 10);
+      // Respect the max of 10 limit for UI purposes (even for unlimited products)
+      const maxAllowed = isUnlimited ? 10 : Math.min(maxAvailable || 10, 10);
       if (currentQuantity >= maxAllowed) {
         return prev;
       }
@@ -76,27 +83,36 @@ const ProductList = () => {
     const cartQuantity = getCartQuantity(product._id);
     const totalQuantityAfterAdd = quantityToAdd + cartQuantity;
 
-    // Check if total quantity (new + existing in cart) exceeds available stock
-    if (totalQuantityAfterAdd > availableStock) {
-      const remainingStock = Math.max(0, availableStock - cartQuantity);
-      if (remainingStock === 0) {
-        enqueueSnackbar(
-          `Cannot add more ${product.name}. You already have ${cartQuantity} in cart and only ${availableStock} available.`,
-          { variant: "error" }
-        );
-      } else {
-        enqueueSnackbar(
-          `Cannot add ${quantityToAdd} ${product.name}. You can only add ${remainingStock} more (${cartQuantity} already in cart, ${availableStock} available).`,
-          { variant: "error" }
-        );
+    // Skip stock validation for unlimited products
+    if (!product.unlimited) {
+      // Check if total quantity (new + existing in cart) exceeds available stock for limited products
+      if (totalQuantityAfterAdd > availableStock) {
+        const remainingStock = Math.max(0, availableStock - cartQuantity);
+        if (remainingStock === 0) {
+          enqueueSnackbar(
+            `Cannot add more ${product.name}. You already have ${cartQuantity} in cart and only ${availableStock} available.`,
+            { variant: "error" }
+          );
+        } else {
+          enqueueSnackbar(
+            `Cannot add ${quantityToAdd} ${product.name}. You can only add ${remainingStock} more (${cartQuantity} already in cart, ${availableStock} available).`,
+            { variant: "error" }
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    // Check if product is available
-    if (product.available === false || availableStock === 0) {
-      enqueueSnackbar(`${product.name} is currently out of stock!`, { variant: "error" });
-      return;
+      // Check if limited product is available and has stock
+      if (product.available === false || availableStock === 0) {
+        enqueueSnackbar(`${product.name} is currently out of stock!`, { variant: "error" });
+        return;
+      }
+    } else {
+      // For unlimited products, only check if the product is available (not stock)
+      if (product.available === false) {
+        enqueueSnackbar(`${product.name} is currently not available!`, { variant: "error" });
+        return;
+      }
     }
 
     const { name, price } = product;
@@ -191,7 +207,7 @@ const ProductList = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {products.map((product) => {
                 const availableStock = getAvailableStock(product);
-                const isOutOfStock = product.available === false || availableStock === 0;
+                const isOutOfStock = product.available === false || (availableStock === 0 && !product.unlimited);
 
                 return (
                   <div
@@ -228,7 +244,7 @@ const ProductList = () => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            increment(product._id, availableStock);
+                            increment(product._id, availableStock, product.unlimited);
                           }}
                           className="text-white text-xl"
                           disabled={isOutOfStock}
@@ -241,7 +257,7 @@ const ProductList = () => {
                     {/* Stock information */}
                     <div className="mt-2 flex justify-between items-center text-xs">
                       <span className="text-gray-500">
-                        Available: {availableStock}
+                        Available: {product.unlimited ? "Unlimited" : availableStock}
                       </span>
                       {/* <div className="flex gap-2">
                         {getCartQuantity(product._id) > 0 && (
@@ -275,7 +291,7 @@ const ProductList = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {filteredProducts.map((product) => {
                 const availableStock = getAvailableStock(product);
-                const isOutOfStock = product.available === false || availableStock === 0;
+                const isOutOfStock = product.available === false || (availableStock === 0 && !product.unlimited);
 
                 return (
                   <div
@@ -298,7 +314,7 @@ const ProductList = () => {
                     {/* Stock information */}
                     <div className="mt-2 flex justify-between items-center text-xs">
                       <span className="text-gray-500">
-                        Available: {availableStock}
+                        Available: {product.unlimited ? "Unlimited" : availableStock}
                       </span>
                     </div>
 

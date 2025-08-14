@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import BottomNav from "../components/shared/BottomNav";
 import TaxConfiguration from "../components/configuration/TaxConfiguration";
+import StallManagerManagement from "../components/configuration/StallManagerManagement";
+import TerminalAssignment from "../components/configuration/TerminalAssignment";
 import { FaCog, FaPercent, FaDollarSign, FaStore, FaDesktop } from "react-icons/fa";
 
 const Configuration = () => {
@@ -51,15 +53,15 @@ const Configuration = () => {
       case "stalls":
         return (
           <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4">Stall Management</h3>
-            <p className="text-gray-600">Stall ID creation and stall number assignment will be implemented here.</p>
+            <h3 className="text-xl font-semibold text-gray-800 mb-6">Stall Management</h3>
+            <StallManagerManagement />
           </div>
         );
       case "terminals":
         return (
           <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4">Terminal Assignment</h3>
-            <p className="text-gray-600">Terminal assignment to stalls will be implemented here.</p>
+            <h3 className="text-xl font-semibold text-gray-800 mb-6">Terminal Assignment</h3>
+            <TerminalAssignment />
           </div>
         );
       default:

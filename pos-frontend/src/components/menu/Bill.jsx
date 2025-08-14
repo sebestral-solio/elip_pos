@@ -53,7 +53,6 @@ const Bill = () => {
     dispatch(fetchTaxRate());
   }, [dispatch]);
 
-  console.log('Bill component - Tax rate:', taxRate);
 
   const [paymentMethod, setPaymentMethod] = useState("");
   const [showInvoice, setShowInvoice] = useState(false);
@@ -90,6 +89,32 @@ const Bill = () => {
     // Close modal and proceed with order
     setShowCustomerModal(false);
     proceedWithOrder();
+  };
+
+  // Helper function to extract error message from API response
+  const extractErrorMessage = (error) => {
+    // Check if it's an axios error with response data
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    // Check if it's an axios error with response data error field
+    if (error.response?.data?.error) {
+      return error.response.data.error;
+    }
+
+    // Check if error has a message property
+    if (error.message) {
+      return error.message;
+    }
+
+    // Check if it's a string error
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    // Fallback to generic message
+    return "An unexpected error occurred. Please try again.";
   };
 
   // Payment monitoring functions
@@ -216,16 +241,34 @@ const Bill = () => {
 
     // Handle common failure reasons with user-friendly messages
     if (customMessage) {
-      if (customMessage.toLowerCase().includes('insufficient funds')) {
+      const lowerMessage = customMessage.toLowerCase();
+
+      // Terminal assignment and configuration errors
+      if (lowerMessage.includes('no terminal assigned') || lowerMessage.includes('terminal not assigned')) {
+        errorMessage = customMessage; // Use exact backend message for terminal issues
+      } else if (lowerMessage.includes('terminal not found') || lowerMessage.includes('terminal configuration')) {
+        errorMessage = customMessage; // Use exact backend message for terminal config issues
+      } else if (lowerMessage.includes('stall manager has no assigned stalls')) {
+        errorMessage = customMessage; // Use exact backend message for stall assignment issues
+      } else if (lowerMessage.includes('insufficient inventory') || lowerMessage.includes('insufficient quantity')) {
+        errorMessage = customMessage; // Use exact backend message for inventory issues
+      } else if (lowerMessage.includes('product not found') || lowerMessage.includes('product not available')) {
+        errorMessage = customMessage; // Use exact backend message for product issues
+      }
+      // Payment processing errors
+      else if (lowerMessage.includes('insufficient funds')) {
         errorMessage = "Payment failed: Insufficient funds. Please use a different payment method.";
-      } else if (customMessage.toLowerCase().includes('card_declined') || customMessage.toLowerCase().includes('declined')) {
+      } else if (lowerMessage.includes('card_declined') || lowerMessage.includes('declined')) {
         errorMessage = "Payment failed: Card declined. Please try a different card or payment method.";
-      } else if (customMessage.toLowerCase().includes('expired')) {
+      } else if (lowerMessage.includes('expired')) {
         errorMessage = "Payment failed: Card expired. Please use a different card.";
-      } else if (customMessage.toLowerCase().includes('incorrect')) {
+      } else if (lowerMessage.includes('incorrect')) {
         errorMessage = "Payment failed: Incorrect card details. Please check your card information.";
-      } else if (customMessage.toLowerCase().includes('timeout') || customMessage.toLowerCase().includes('terminal')) {
-        errorMessage = "Payment failed at terminal. Please try again or use a different payment method.";
+      } else if (lowerMessage.includes('timeout')) {
+        errorMessage = "Payment failed: Transaction timed out. Please try again.";
+      } else {
+        // For any other specific backend message, use it as-is
+        errorMessage = customMessage;
       }
     }
 
@@ -321,26 +364,81 @@ const Bill = () => {
     setShowInvoice(true);
   };
 
+  // Validation function to check if order can be placed
+  const isOrderValid = () => {
+    // Check if cart has items
+    if (!cartItems || cartItems.length === 0) {
+      return false;
+    }
+
+    // Check if total amount is valid (positive number)
+    if (!total || total <= 0 || isNaN(total) || !isFinite(total)) {
+      return false;
+    }
+
+    // Check if total with tax is valid
+    if (!totalPriceWithTax || totalPriceWithTax <= 0 || isNaN(totalPriceWithTax) || !isFinite(totalPriceWithTax)) {
+      return false;
+    }
+
+    return true;
+  };
+
+  // Get validation message for disabled button
+  const getValidationMessage = () => {
+    if (!cartItems || cartItems.length === 0) {
+      return "Add items to cart to place order";
+    }
+
+    if (!total || total <= 0 || isNaN(total) || !isFinite(total)) {
+      return "Invalid order total amount";
+    }
+
+    if (!totalPriceWithTax || totalPriceWithTax <= 0 || isNaN(totalPriceWithTax) || !isFinite(totalPriceWithTax)) {
+      return "Invalid total amount with tax";
+    }
+
+    if (!paymentMethod) {
+      return "Please select a payment method";
+    }
+
+    return "";
+  };
+
   // Show customer info modal before placing order
   const handlePlaceOrderClick = () => {
+    if (!isOrderValid()) {
+      enqueueSnackbar(getValidationMessage(), {
+        variant: "warning",
+      });
+      return;
+    }
+
     if (!paymentMethod) {
       enqueueSnackbar("Please select a payment method!", {
         variant: "warning",
       });
       return;
     }
-    
+
     // Show customer info modal
     setShowCustomerModal(true);
   };
   
   // Actual order placement logic
   const proceedWithOrder = async () => {
+    // Double-check order validation before proceeding
+    if (!isOrderValid()) {
+      enqueueSnackbar(getValidationMessage(), {
+        variant: "error",
+      });
+      return;
+    }
+
     if (!paymentMethod) {
       enqueueSnackbar("Please select a payment method!", {
         variant: "warning",
       });
-
       return;
     }
 
@@ -387,8 +485,16 @@ const Bill = () => {
         startPaymentMonitoring(data.paymentIntent.id);
 
       } catch (error) {
-        console.log(error);
-        enqueueSnackbar("Payment Failed!", {
+        console.log('❌ Payment creation failed:', error);
+
+        // Extract specific error message from backend response
+        const errorMessage = extractErrorMessage(error);
+
+        // Set payment error state to show in modal
+        setPaymentError(errorMessage);
+
+        // Also show snackbar notification
+        enqueueSnackbar(errorMessage, {
           variant: "error",
         });
       }
@@ -408,12 +514,16 @@ const Bill = () => {
           tax: tax,
           totalWithTax: totalPriceWithTax,
         },
-        items: cartItems,
+        items: cartItems.map(item => ({
+          id: item.id,
+          productId: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity
+        })),
         table: customerData.table?.tableId,
         paymentMethod: paymentMethod,
-        paymentData: {
-          payment_method_type: "cash",
-        },
+        // paymentData field omitted for cash orders - not needed since cash doesn't require Payment document reference
       };
       orderMutation.mutate(orderData);
     }
@@ -457,7 +567,11 @@ const Bill = () => {
     },
     onError: (error) => {
       console.log('❌ Cash order creation failed:', error);
-      enqueueSnackbar("Failed to create cash order", {
+
+      // Extract specific error message from backend response
+      const errorMessage = extractErrorMessage(error);
+
+      enqueueSnackbar(errorMessage, {
         variant: "error",
       });
     },
@@ -492,10 +606,14 @@ const Bill = () => {
           <p className="text-xs text-[black] font-medium">
             Total With Tax
           </p>
-          <h1 className="text-[black] text-md font-bold">
+          <h1 className={`text-md font-bold ${
+            !isOrderValid() ? "text-red-500" : "text-[black]"
+          }`}>
             ₹{totalPriceWithTax.toFixed(2)}
           </h1>
         </div>
+
+
         <div className="flex items-center gap-3 px-5 mt-4">
           <button
             onClick={() => setPaymentMethod("Cash")}
@@ -521,7 +639,12 @@ const Bill = () => {
           </button>
           <button
             onClick={handlePlaceOrderClick}
-            className="bg-[red] px-4 py-3 w-full rounded-lg text-[white] font-semibold text-lg"
+            disabled={!isOrderValid() || !paymentMethod}
+            className={`px-4 py-3 w-full rounded-lg font-semibold text-lg transition-all duration-200 ${
+              !isOrderValid() || !paymentMethod
+                ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-60"
+                : "bg-[red] text-[white] hover:bg-red-600 cursor-pointer"
+            }`}
           >
             Place Order
           </button>
@@ -632,7 +755,7 @@ const Bill = () => {
       {/* Payment Error Overlay */}
       {paymentError && !isProcessingPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 text-center">
+          <div className="bg-white rounded-lg p-8 max-w-lg w-full mx-4 text-center">
             <div className="mb-6">
               <motion.div
                 initial={{ scale: 0, opacity: 0 }}
@@ -649,8 +772,10 @@ const Bill = () => {
                   <FaCircleXmark className="text-white" />
                 </motion.span>
               </motion.div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">Payment Failed</h3>
-              <p className="text-gray-600">{paymentError}</p>
+              <h3 className="text-xl font-semibold text-gray-800 mb-4">Payment Failed</h3>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <p className="text-red-800 text-sm leading-relaxed">{paymentError}</p>
+              </div>
             </div>
 
             <div className="flex gap-3 justify-center">

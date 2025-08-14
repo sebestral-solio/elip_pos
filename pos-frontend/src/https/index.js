@@ -47,5 +47,37 @@ export const updateProduct = ({ productId, ...productData }) =>
 export const deleteProduct = (productId) => axiosWrapper.delete(`/api/products/${productId}`);
 
 // Configuration Endpoints
-export const updateTaxRate = (data) => axiosWrapper.put("/api/user/config/tax-rate", data);
-export const getTaxRate = () => axiosWrapper.get("/api/user/config/tax-rate");
+export const updateTaxRate = (data) => axiosWrapper.put("/api/configuration/tax-rate", data);
+
+// Terminal Management Endpoints
+export const verifyTerminal = (data) => axiosWrapper.post("/api/configuration/terminals/verify", data);
+export const addTerminal = (data) => axiosWrapper.post("/api/configuration/terminals", data);
+export const getTerminals = () => axiosWrapper.get("/api/configuration/terminals");
+export const getTerminal = (terminalId) => axiosWrapper.get(`/api/configuration/terminals/${terminalId}`);
+export const updateTerminal = ({ terminalId, ...terminalData }) => 
+  axiosWrapper.put(`/api/configuration/terminals/${terminalId}`, terminalData);
+export const deleteTerminal = (terminalId) => axiosWrapper.delete(`/api/configuration/terminals/${terminalId}`);
+export const updateTerminalStatus = ({ terminalId, ...statusData }) => 
+  axiosWrapper.patch(`/api/configuration/terminals/${terminalId}/status`, statusData);
+export const assignTerminalToStall = (terminalId, data) => 
+  axiosWrapper.put(`/api/configuration/terminals/${terminalId}/assign`, data);
+export const unassignTerminalFromStall = (terminalId) => 
+  axiosWrapper.put(`/api/configuration/terminals/${terminalId}/unassign`);
+export const getTerminalAssignments = () => axiosWrapper.get("/api/configuration/terminals/assignments");
+export const getTaxRate = () => axiosWrapper.get("/api/configuration/tax-rate");
+
+// Stall Manager Endpoints
+export const getStallManagers = () => axiosWrapper.get("/api/stall-managers");
+export const createStallManager = (data) => axiosWrapper.post("/api/stall-managers", data);
+export const updateStallManager = ({ managerId, ...managerData }) =>
+  axiosWrapper.put(`/api/stall-managers/${managerId}`, managerData);
+export const deleteStallManager = (managerId) => axiosWrapper.delete(`/api/stall-managers/${managerId}`);
+export const stallManagerLogin = (data) => axiosWrapper.post("/api/stall-managers/login", data);
+
+// Stall Endpoints
+export const getStalls = () => axiosWrapper.get("/api/stalls");
+export const getStallById = (stallId) => axiosWrapper.get(`/api/stalls/${stallId}`);
+export const createStall = (data) => axiosWrapper.post("/api/stalls", data);
+export const updateStall = ({ stallId, ...stallData }) =>
+  axiosWrapper.put(`/api/stalls/${stallId}`, stallData);
+export const deleteStall = (stallId) => axiosWrapper.delete(`/api/stalls/${stallId}`);

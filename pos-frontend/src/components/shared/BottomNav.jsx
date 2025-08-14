@@ -20,7 +20,7 @@ const BottomNav = () => {
   // Get user role from Redux store
   const { role } = useSelector((state) => state.user);
   const isAdmin = role === "Admin";
-  const isAdminOrCashier = role === "Admin" || role === "Cashier";
+  const isAdminOrCashier = role === "Admin" || role === "Cashier" || role === "stall_manager";
   
 
   const openModal = () => setIsModalOpen(true);

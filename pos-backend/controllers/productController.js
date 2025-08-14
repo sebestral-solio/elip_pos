@@ -126,12 +126,28 @@ const updateProductAvailability = async (orderItems) => {
             return { success: false, productId, itemName, message: 'Product not found' };
           }
 
-          // Calculate available stock (quantity - sold)
+          // Skip availability updates for unlimited products - they remain always available
+          if (product.unlimited) {
+            console.log(`♾️ Skipping availability update for unlimited product: ${product.name}`);
+            return {
+              success: true,
+              productId,
+              itemName: product.name,
+              totalQuantity: "unlimited",
+              soldQuantity: product.sold,
+              availableStock: "unlimited",
+              available: product.available, // Keep current available status
+              quantityOrdered: quantity,
+              unlimited: true
+            };
+          }
+
+          // Calculate available stock (quantity - sold) for limited products
           const availableStock = Math.max(0, (product.quantity || 0) - (product.sold || 0));
 
           console.log(`📊 Stock info for ${product.name}: Total: ${product.quantity}, Sold: ${product.sold}, Available: ${availableStock}`);
 
-          // Update only availability status based on available stock
+          // Update only availability status based on available stock for limited products
           const updatedProduct = await Product.findByIdAndUpdate(
             productId,
             {
@@ -150,7 +166,8 @@ const updateProductAvailability = async (orderItems) => {
             soldQuantity: product.sold,
             availableStock: availableStock,
             available: updatedProduct.available,
-            quantityOrdered: quantity
+            quantityOrdered: quantity,
+            unlimited: false
           };
         } catch (itemError) {
           console.error(`❌ Error updating product availability ${productId}:`, itemError);

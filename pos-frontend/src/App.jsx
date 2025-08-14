@@ -32,7 +32,7 @@ function Layout() {
             </AdminRoute>
           }
         />
-        <Route path="/auth" element={isAuth ? <Navigate to="/" /> : <Auth />} />
+        <Route path="/auth" element={isAuth ? <AuthRedirect /> : <Auth />} />
         <Route
           path="/orders"
           element={
@@ -111,6 +111,18 @@ function AdminRoute({ children }) {
   return children;
 }
 
+function AuthRedirect() {
+  const { role } = useSelector((state) => state.user);
+
+  // Redirect based on role after authentication
+  if (role === "Admin") {
+    return <Navigate to="/" />;
+  } else {
+    // Cashier and stall_manager go to menu
+    return <Navigate to="/menu" />;
+  }
+}
+
 function AdminCashierRoute({ children }) {
   const { isAuth, role } = useSelector((state) => state.user);
 
@@ -118,8 +130,8 @@ function AdminCashierRoute({ children }) {
     return <Navigate to="/auth" />;
   }
 
-  // Allow both Admin and Cashier roles
-  if (role !== "Admin" && role !== "Cashier") {
+  // Allow Admin, Cashier, and stall_manager roles
+  if (role !== "Admin" && role !== "Cashier" && role !== "stall_manager") {
     return <Navigate to="/menu" />;
   }
 

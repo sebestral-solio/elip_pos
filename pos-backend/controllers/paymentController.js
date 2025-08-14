@@ -50,10 +50,7 @@ const validateInventory = async (orderItems) => {
     for (const item of orderItems) {
       const product = await Product.findById(item.id || item.productId);
 
-      // Calculate available stock (total quantity - sold)
-      const availableStock = product ? Math.max(0, (product.quantity || 0) - (product.sold || 0)) : 0;
-
-      // If product not found or not enough quantity
+      // If product not found
       if (!product) {
         invalidItems.push({
           id: item.id || item.productId,
@@ -62,7 +59,28 @@ const validateInventory = async (orderItems) => {
           available: 0,
           reason: "Product not found"
         });
-      } else if (!product.available || availableStock === 0) {
+        continue;
+      }
+
+      // Skip quantity validation for unlimited products - only check if available
+      if (product.unlimited) {
+        if (!product.available) {
+          invalidItems.push({
+            id: item.id || item.productId,
+            name: product.name,
+            requested: item.quantity,
+            available: "unlimited",
+            reason: "Product not available"
+          });
+        }
+        continue; // Skip quantity checks for unlimited products
+      }
+
+      // Calculate available stock (total quantity - sold) for limited products
+      const availableStock = Math.max(0, (product.quantity || 0) - (product.sold || 0));
+
+      // Quantity validation for limited products
+      if (!product.available || availableStock === 0) {
         invalidItems.push({
           id: item.id || item.productId,
           name: product.name,
@@ -93,6 +111,80 @@ const validateInventory = async (orderItems) => {
 
 // Initialize Stripe with secret key
 const stripeClient = config.stripeSecretKey ? stripe(config.stripeSecretKey) : null;
+
+// Helper function to get terminal ID based on user type and stall assignment
+const getTerminalIdForUser = async (req) => {
+  console.log(`🔍 Getting terminal for user type: ${req.userType}, user ID: ${req.user?._id}`);
+
+  if (req.userType === 'stallManager') {
+    // For stall managers, get terminal from their assigned stall
+    const StallManager = require("../models/stallManagerModel");
+    const Stall = require("../models/stallModel");
+    const Configuration = require("../models/configurationModel");
+
+    console.log(`🔍 Looking up stall manager: ${req.user._id}`);
+
+    // Get the stall manager with populated stall info
+    const stallManager = await StallManager.findById(req.user._id).populate('stallIds');
+    console.log(`🔍 Found stall manager:`, stallManager ? {
+      id: stallManager._id,
+      name: stallManager.name,
+      stallCount: stallManager.stallIds?.length || 0
+    } : 'null');
+
+    if (!stallManager || !stallManager.stallIds || stallManager.stallIds.length === 0) {
+      throw new Error("Stall manager has no assigned stalls");
+    }
+
+    // Get the first assigned stall (assuming one stall per manager for now)
+    const assignedStall = stallManager.stallIds[0];
+    console.log(`🔍 Assigned stall:`, assignedStall ? {
+      id: assignedStall._id,
+      name: assignedStall.name,
+      terminalId: assignedStall.terminalId
+    } : 'null');
+
+    if (!assignedStall.terminalId) {
+      throw new Error("No terminal assigned to your stall. Please contact admin to assign a terminal.");
+    }
+
+    // Get the configuration to find the actual terminal details
+    const config = await Configuration.findOne({ adminId: assignedStall.adminId });
+    console.log(`🔍 Configuration found:`, config ? {
+      adminId: config.adminId,
+      terminalCount: config.terminals?.length || 0
+    } : 'null');
+
+    if (!config || !config.terminals) {
+      throw new Error("Terminal configuration not found");
+    }
+
+    // Find the terminal in configuration by _id
+    const terminal = config.terminals.find(t => t._id.toString() === assignedStall.terminalId.toString());
+    console.log(`🔍 Terminal found:`, terminal ? {
+      id: terminal._id,
+      terminalId: terminal.terminalId,
+      label: terminal.label
+    } : 'null');
+
+    if (!terminal) {
+      throw new Error("Terminal not found in configuration. Please contact admin.");
+    }
+
+    console.log(`💳 Using terminal ${terminal.terminalId} assigned to stall ${assignedStall.name} for stall manager ${stallManager.name}`);
+    return terminal.terminalId; // This is the Stripe terminal ID
+
+  } else {
+    // For admins, use the configured default terminal
+    console.log(`🔍 Using default terminal for admin user`);
+    const readerId = config.stripeTerminalReaderId;
+    if (!readerId) {
+      throw new Error("Terminal reader ID not configured. Please set STRIPE_TERMINAL_READER_ID environment variable.");
+    }
+    console.log(`💳 Using default terminal: ${readerId}`);
+    return readerId;
+  }
+};
 
 const createPaymentIntent = async (req, res, next) => {
   try {
@@ -127,6 +219,33 @@ const createPaymentIntent = async (req, res, next) => {
     // Convert amount to cents (Stripe uses smallest currency unit)
     const amountInCents = Math.round(amount * 100);
 
+    // Get terminal ID and (optionally) stall information before creating the order
+    // so we can include stall context on the order document
+    let readerId;
+    let stallInfo = null;
+    try {
+      readerId = await getTerminalIdForUser(req);
+
+      // If it's a stall manager, also get stall information for order tracking
+      if (req.userType === 'stallManager') {
+        const StallManager = require("../models/stallManagerModel");
+        const stallManager = await StallManager.findById(req.user._id).populate('stallIds');
+        console.log(`Assigned stall:`, stallManager);
+        if (stallManager && stallManager.stallIds && stallManager.stallIds.length > 0) {
+          const assignedStall = stallManager.stallIds[0];
+          stallInfo = {
+            stallId: assignedStall._id,
+            stallManagerId: stallManager._id,
+            terminalId: readerId
+          };
+        }
+      }
+    } catch (terminalError) {
+      console.error('Error getting terminal for user:', terminalError);
+      const error = createHttpError(400, terminalError.message);
+      return next(error);
+    }
+
     // Generate unique order ID
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
@@ -142,7 +261,13 @@ const createPaymentIntent = async (req, res, next) => {
       orderDate: new Date(),
       items: orderData.items,
       bills: orderData.bills,
-      paymentMethod: orderData.paymentMethod || 'stripe'
+      paymentMethod: orderData.paymentMethod || 'stripe',
+      // Include stall information if available (for stall managers)
+      ...(stallInfo && {
+        stallId: stallInfo.stallId,
+        stallManagerId: stallInfo.stallManagerId,
+        terminalId: stallInfo.terminalId
+      })
     });
 
     // Save order to database
@@ -187,13 +312,6 @@ const createPaymentIntent = async (req, res, next) => {
 
     await newPayment.save();
     console.log(`💳 Payment record created with pending status: ${paymentIntent.id}`);
-
-    // Process the PaymentIntent on the terminal reader
-    const readerId = config.stripeTerminalReaderId;
-    if (!readerId) {
-      const error = createHttpError(500, "Terminal reader ID not configured. Please set STRIPE_TERMINAL_READER_ID environment variable.");
-      return next(error);
-    }
 
     try {
       const reader = await stripeClient.terminal.readers.processPaymentIntent(
@@ -473,6 +591,32 @@ const stripeWebhookHandler = async (req, res, next) => {
                   // Use Promise.all for concurrent atomic updates
                   const soldUpdatePromises = order.items.map(async (item) => {
                     try {
+                      // First check if product is unlimited
+                      const product = await Product.findById(item.productId);
+
+                      if (!product) {
+                        console.log(`⚠️ Product not found for ID: ${item.productId}`);
+                        return { success: false, productId: item.productId, error: 'Product not found' };
+                      }
+
+                      // Handle unlimited products - update sold count but skip availability logic
+                      if (product.unlimited) {
+                        const updatedProduct = await Product.findByIdAndUpdate(
+                          item.productId,
+                          { $inc: { sold: item.quantity } },
+                          { new: true }
+                        );
+
+                        if (updatedProduct) {
+                          console.log(`♾️ ${updatedProduct.name} (unlimited): sold count increased by ${item.quantity} (total sold: ${updatedProduct.sold})`);
+                          return { success: true, productName: updatedProduct.name, quantitySold: item.quantity, unlimited: true };
+                        } else {
+                          console.log(`⚠️ Unlimited product not found for ID: ${item.productId}`);
+                          return { success: false, productId: item.productId, error: 'Unlimited product not found' };
+                        }
+                      }
+
+                      // Handle limited products - update sold count AND availability logic
                       const updatedProduct = await Product.findByIdAndUpdate(
                         item.productId,
                         { $inc: { sold: item.quantity } },
@@ -480,11 +624,11 @@ const stripeWebhookHandler = async (req, res, next) => {
                       );
 
                       if (updatedProduct) {
-                        console.log(`📊 ${updatedProduct.name}: sold count increased by ${item.quantity} (total sold: ${updatedProduct.sold})`);
-                        return { success: true, productName: updatedProduct.name, quantitySold: item.quantity };
+                        console.log(`📊 ${updatedProduct.name} (limited): sold count increased by ${item.quantity} (total sold: ${updatedProduct.sold})`);
+                        return { success: true, productName: updatedProduct.name, quantitySold: item.quantity, unlimited: false };
                       } else {
-                        console.log(`⚠️ Product not found for ID: ${item.productId}`);
-                        return { success: false, productId: item.productId, error: 'Product not found' };
+                        console.log(`⚠️ Limited product not found for ID: ${item.productId}`);
+                        return { success: false, productId: item.productId, error: 'Limited product not found' };
                       }
                     } catch (error) {
                       console.error(`❌ Error updating sold count for product ${item.productId}:`, error);
@@ -891,7 +1035,7 @@ const checkPaymentFailureAndCleanup = async (req, res, next) => {
         const orderAge = Date.now() - existingOrder.createdAt.getTime();
 
         // If order is older than 2 minutes and still requires payment method, likely failed
-        if (orderAge > 2 * 60 * 1000) {
+        if (orderAge > 10 * 60 * 1000) {
           shouldCleanup = true;
           failureReason = "Payment timeout at terminal";
           console.log(`🧹 Payment likely failed - marking order as failed ${orderId} (age: ${Math.round(orderAge / 1000)}s)`);

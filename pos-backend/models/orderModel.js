@@ -40,9 +40,24 @@ const orderSchema = new mongoose.Schema({
     ],
     paymentMethod: String,
     paymentData: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: 'Payment'
-}
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Payment'
+    },
+    // Track which stall and stall manager processed this order
+    stallId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Stall',
+        required: false
+    },
+    stallManagerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'StallManager',
+        required: false
+    },
+    terminalId: {
+        type: String, // Stripe terminal ID used for this order
+        required: false
+    }
 
 }, { timestamps: true });
 

@@ -5,6 +5,36 @@ import BottomNav from "../components/shared/BottomNav";
 import { FaPlus, FaEdit, FaTrash } from "react-icons/fa";
 import { enqueueSnackbar } from "notistack";
 
+// Toggle Switch Component
+const ToggleSwitch = ({ checked, onChange, label, helpText, disabled = false }) => {
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-gray-700 font-medium">{label}</label>
+        <button
+          type="button"
+          onClick={() => !disabled && onChange(!checked)}
+          disabled={disabled}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${
+            checked
+              ? 'bg-red-600 shadow-md'
+              : 'bg-gray-300 hover:bg-gray-400'
+          } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-all duration-200 ease-in-out shadow-sm ${
+              checked ? 'translate-x-6 scale-110' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+      {helpText && (
+        <p className="text-sm text-gray-500">{helpText}</p>
+      )}
+    </div>
+  );
+};
+
 const Products = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -16,11 +46,16 @@ const Products = () => {
     description: "",
     quantity: 0,
     available: true,
+    unlimited: false,
     image: ""
   });
 
   // Helper function to calculate available stock
   const getAvailableStock = (product) => {
+    // Unlimited products have infinite stock
+    if (product.unlimited) {
+      return "Unlimited";
+    }
     const sold = product.sold || 0;
     const total = product.quantity || 0;
     return Math.max(0, total - sold); // Ensure we don't show negative stock
@@ -82,6 +117,7 @@ const Products = () => {
       description: "",
       quantity: 0,
       available: true,
+      unlimited: false,
       image: ""
     });
     setIsModalOpen(false);
@@ -131,6 +167,7 @@ const Products = () => {
       description: product.description || "",
       quantity: product.quantity || 0,
       available: product.available !== false, // Default to true if not set
+      unlimited: product.unlimited || false, // Default to false if not set
       image: product.image || ""
     });
     setIsEditMode(true);
@@ -168,7 +205,7 @@ const Products = () => {
             {products.length > 0 ? (
               products.map((product) => {
                 const availableStock = getAvailableStock(product);
-                const isOutOfStock = product.available === false || availableStock === 0;
+                const isOutOfStock = product.available === false || (availableStock === 0 && !product.unlimited);
 
                 return (
                   <div
@@ -197,18 +234,34 @@ const Products = () => {
                     </div>
                     <div className="flex justify-between items-center mt-2">
                       <div className="text-gray-600 text-sm">
-                        <div>Total Stock: {product.quantity || 0}</div>
-                        <div>Available: {availableStock}</div>
-                        {product.sold > 0 && <div>Sold: {product.sold}</div>}
+                        {product.unlimited ? (
+                          <>
+                            <div className="text-blue-600 font-medium">♾️ Unlimited Stock</div>
+                            {product.sold > 0 && <div>Sold: {product.sold}</div>}
+                          </>
+                        ) : (
+                          <>
+                            <div>Total Stock: {product.quantity || 0}</div>
+                            <div>Available: {availableStock}</div>
+                            {product.sold > 0 && <div>Sold: {product.sold}</div>}
+                          </>
+                        )}
                       </div>
                       <span
                         className={`px-2 py-1 rounded text-xs font-medium ${
                           !isOutOfStock
-                            ? "bg-green-500 text-white"
+                            ? product.unlimited
+                              ? "bg-blue-500 text-white"
+                              : "bg-green-500 text-white"
                             : "bg-red-500 text-white"
                         }`}
                       >
-                        {!isOutOfStock ? "Available" : "Out of Stock"}
+                        {!isOutOfStock
+                          ? product.unlimited
+                            ? "Unlimited"
+                            : "Available"
+                          : "Out of Stock"
+                        }
                       </span>
                     </div>
                   </div>
@@ -276,17 +329,29 @@ const Products = () => {
                   rows="3"
                 ></textarea>
               </div>
-              <div className="mb-4">
-                <label className="block text-gray-700 mb-2">Quantity</label>
-                <input
-                  type="number"
-                  name="quantity"
-                  value={formData.quantity}
-                  onChange={handleInputChange}
-                  className="w-full bg-white border border-gray-300 text-gray-800 p-2 rounded-lg"
-                  min="0"
-                />
-              </div>
+
+              {/* Unlimited Stock Toggle */}
+              <ToggleSwitch
+                checked={formData.unlimited}
+                onChange={(value) => setFormData({ ...formData, unlimited: value })}
+                label="Unlimited Stock"
+              />
+
+              {/* Conditionally render quantity field only when unlimited is OFF */}
+              {!formData.unlimited && (
+                <div className="mb-4">
+                  <label className="block text-gray-700 mb-2">Quantity</label>
+                  <input
+                    type="number"
+                    name="quantity"
+                    value={formData.quantity}
+                    onChange={handleInputChange}
+                    className="w-full bg-white border border-gray-300 text-gray-800 p-2 rounded-lg"
+                    min="0"
+                    placeholder="Enter quantity"
+                  />
+                </div>
+              )}
               <div className="mb-4">
                 <label className="block text-gray-700 mb-2">Image URL</label>
                 <input

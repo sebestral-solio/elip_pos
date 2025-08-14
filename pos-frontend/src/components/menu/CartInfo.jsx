@@ -26,6 +26,11 @@ const CartInfo = () => {
     const product = products.find(p => p._id === productId);
     if (!product) return 0;
 
+    // Unlimited products have infinite stock
+    if (product.unlimited) {
+      return Infinity;
+    }
+
     const sold = product.sold || 0;
     const total = product.quantity || 0;
     return Math.max(0, total - sold);
@@ -55,8 +60,8 @@ const CartInfo = () => {
     const availableStock = getAvailableStock(item.id);
     const newQuantity = item.quantity + 1;
 
-    // Check if the new quantity would exceed available stock
-    if (newQuantity > availableStock) {
+    // Skip stock validation for unlimited products (availableStock will be Infinity)
+    if (availableStock !== Infinity && newQuantity > availableStock) {
       const productName = getProductName(item.id);
       enqueueSnackbar(
         `Cannot add more ${productName}. Only ${availableStock} available in stock.`,

@@ -7,6 +7,7 @@ const productSchema = new mongoose.Schema({
     available: { type: Boolean, default: true },
     quantity: { type: Number, default: 0 },
     sold: { type: Number, default: 0, min: 0 },
+    unlimited: { type: Boolean, default: false },
     image: { type: String },
     description: { type: String }
 }, { timestamps: true });

@@ -1,5 +1,6 @@
 const createHttpError = require("http-errors");
 const User = require("../models/userModel");
+const Configuration = require("../models/configurationModel");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const config = require("../config/config");
@@ -81,9 +82,17 @@ const login = async (req, res, next) => {
 
 const getUserData = async (req, res, next) => {
     try {
-        
-        const user = await User.findById(req.user._id);
-        res.status(200).json({success: true, data: user});
+        const userType = req.userType;
+
+        if (userType === 'stallManager') {
+            // For stall managers, return the stall manager data
+            const stallManager = req.user; // Already populated from middleware
+            res.status(200).json({success: true, data: stallManager});
+        } else {
+            // For regular users
+            const user = await User.findById(req.user._id);
+            res.status(200).json({success: true, data: user});
+        }
 
     } catch (error) {
         next(error);
@@ -132,27 +141,48 @@ const updateTaxRate = async (req, res, next) => {
             return next(error);
         }
 
-        // Update admin user's tax rate
-        await user.updateConfig({ taxRate });
+        // Get or create configuration for admin
+        let configuration = await Configuration.findOne({ adminId: userId });
+        if (!configuration) {
+            configuration = new Configuration({
+                adminId: userId,
+                taxSettings: {
+                    taxRate: taxRate,
+                    platformFeeRate: 0,
+                    lastUpdated: new Date()
+                },
+                terminals: [],
+                businessSettings: {
+                    currency: 'SGD',
+                    timezone: 'Asia/Singapore'
+                },
+                linkedUsers: []
+            });
+        } else {
+            // Update existing configuration
+            configuration.taxSettings.taxRate = taxRate;
+            configuration.taxSettings.lastUpdated = new Date();
+        }
 
-        // Get linked users and update their tax rates
-        const linkedUserIds = user.config?.linkedUsers || [];
+        await configuration.save();
+
+        // Get linked users and update their tax rates (if any)
+        const linkedUserIds = configuration.linkedUsers || [];
         if (linkedUserIds.length > 0) {
-            // Update all linked users' tax rates
-            const updateResult = await User.updateMany(
+            // Update all linked users' tax rates in their configurations
+            const updateResult = await Configuration.updateMany(
                 {
-                    _id: { $in: linkedUserIds },
-                    role: { $ne: 'Admin' } // Only update non-admin linked users
+                    adminId: { $in: linkedUserIds }
                 },
                 {
                     $set: {
-                        'config.taxRate': taxRate,
-                        'config.lastUpdated': new Date()
+                        'taxSettings.taxRate': taxRate,
+                        'taxSettings.lastUpdated': new Date()
                     }
                 }
             );
 
-            console.log(`Updated tax rate for ${updateResult.modifiedCount} linked users`);
+            console.log(`Updated tax rate for ${updateResult.modifiedCount} linked user configurations`);
         }
 
         res.status(200).json({
@@ -161,7 +191,7 @@ const updateTaxRate = async (req, res, next) => {
             data: {
                 taxRate,
                 linkedUsersUpdated: linkedUserIds.length,
-                lastUpdated: user.config.lastUpdated
+                lastUpdated: configuration.taxSettings.lastUpdated
             }
         });
 
@@ -175,18 +205,73 @@ const updateTaxRate = async (req, res, next) => {
 const getTaxRate = async (req, res, next) => {
     try {
         const userId = req.user._id;
+        const userType = req.userType;
 
-        // Get the requesting user
-        const user = await User.findById(userId);
-        if (!user) {
-            const error = createHttpError(404, "User not found");
-            return next(error);
+        let taxRate = 5.25; // Default
+        let isAdmin = false;
+        let canModify = false;
+        let lastUpdated = null;
+
+        if (userType === 'stallManager') {
+            // For stall managers, get tax rate from their admin's configuration
+            const stallManager = req.user; // Already populated from middleware
+
+            if (stallManager.adminId) {
+                const adminConfig = await Configuration.findOne({ adminId: stallManager.adminId });
+                if (adminConfig) {
+                    taxRate = adminConfig.taxSettings?.taxRate || 5.25;
+                    lastUpdated = adminConfig.taxSettings?.lastUpdated || null;
+                }
+            }
+
+            isAdmin = false;
+            canModify = false; // Stall managers cannot modify tax rates
+        } else {
+            // For regular users
+            const user = await User.findById(userId);
+            if (!user) {
+                const error = createHttpError(404, "User not found");
+                return next(error);
+            }
+
+            isAdmin = user.role === 'Admin';
+            canModify = isAdmin; // Only admins can modify tax rates
+
+            if (isAdmin) {
+                // For admin users, get from their configuration
+                const adminConfig = await Configuration.findOne({ adminId: userId });
+                if (adminConfig) {
+                    taxRate = adminConfig.taxSettings?.taxRate || 5.25;
+                    lastUpdated = adminConfig.taxSettings?.lastUpdated || null;
+                } else {
+                    // Create default configuration if it doesn't exist
+                    const newConfig = new Configuration({
+                        adminId: userId,
+                        taxSettings: {
+                            taxRate: 5.25,
+                            platformFeeRate: 0,
+                            lastUpdated: new Date()
+                        },
+                        terminals: [],
+                        businessSettings: {
+                            currency: 'SGD',
+                            timezone: 'Asia/Singapore'
+                        },
+                        linkedUsers: []
+                    });
+                    await newConfig.save();
+                    taxRate = 5.25;
+                    lastUpdated = newConfig.taxSettings.lastUpdated;
+                }
+            } else {
+                // For non-admin users, use default or check if they have their own config
+                const userConfig = await Configuration.findOne({ adminId: userId });
+                if (userConfig) {
+                    taxRate = userConfig.taxSettings?.taxRate || 5.25;
+                    lastUpdated = userConfig.taxSettings?.lastUpdated || null;
+                }
+            }
         }
-
-        // Get tax rate from user's config or default
-        const taxRate = user.config?.taxRate || 5.25;
-        const isAdmin = user.role === 'Admin';
-        const canModify = isAdmin; // Only admins can modify tax rates
 
         res.status(200).json({
             success: true,
@@ -194,7 +279,7 @@ const getTaxRate = async (req, res, next) => {
                 taxRate,
                 isAdmin,
                 canModify,
-                lastUpdated: user.config?.lastUpdated || null
+                lastUpdated
             }
         });
 
