@@ -198,13 +198,13 @@ const StallTerminalManagement = ({ selectedManager, onBack }) => {
 
   // Get available terminals (not assigned to any stall)
   const getAvailableTerminals = () => {
-    // Get all terminal IDs that are currently assigned to stalls
+    // Get all terminal IDs that are currently assigned to stalls (across all stalls, not just assigned ones)
     const assignedTerminalIds = stalls
       .filter(stall => stall.terminalId)
       .map(stall => stall.terminalId);
-    
+
     // Filter out terminals that are already assigned
-    return terminals.filter(terminal => 
+    return terminals.filter(terminal =>
       !assignedTerminalIds.includes(terminal._id)
     );
   };
@@ -214,6 +214,16 @@ const StallTerminalManagement = ({ selectedManager, onBack }) => {
     const terminal = terminals.find(t => t._id === terminalId);
     return terminal ? (terminal.label || terminal.terminalId) : terminalId;
   };
+
+  // Filter stalls to show only those assigned to the selected manager
+  const getAssignedStalls = () => {
+    if (!selectedManager) {
+      return [];
+    }
+    return stalls.filter(stall => stall.managerId?._id === selectedManager._id);
+  };
+
+  const assignedStalls = getAssignedStalls();
 
   return (
     <div className="space-y-6">
@@ -398,7 +408,7 @@ const StallTerminalManagement = ({ selectedManager, onBack }) => {
       <div className="bg-white border border-gray-200 rounded-lg">
         <div className="px-6 py-4 border-b border-gray-200">
           <h5 className="text-lg font-medium text-gray-800">
-            Existing Stalls ({stalls.length})
+            Assigned Stalls ({assignedStalls.length})
           </h5>
         </div>
 
@@ -407,21 +417,30 @@ const StallTerminalManagement = ({ selectedManager, onBack }) => {
             <FaSpinner className="animate-spin text-green-600 text-2xl mr-2" />
             <span className="text-gray-600">Loading stalls...</span>
           </div>
-        ) : stalls.length === 0 ? (
+        ) : assignedStalls.length === 0 ? (
           <div className="text-center py-8">
             <FaStore className="mx-auto text-gray-400 text-4xl mb-4" />
-            <h6 className="text-lg font-medium text-gray-600 mb-2">No Stalls</h6>
-            <p className="text-gray-500 mb-4">Get started by adding your first stall</p>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-            >
-              Add First Stall
-            </button>
+            <h6 className="text-lg font-medium text-gray-600 mb-2">
+              {selectedManager ? 'No Assigned Stalls' : 'No Manager Selected'}
+            </h6>
+            <p className="text-gray-500 mb-4">
+              {selectedManager
+                ? `${selectedManager.name} has no stalls assigned yet. Create a new stall to get started.`
+                : 'Please select a manager to view their assigned stalls.'
+              }
+            </p>
+            {selectedManager && (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Add First Stall for {selectedManager.name}
+              </button>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-gray-200">
-            {stalls.map((stall) => (
+            {assignedStalls.map((stall) => (
               <div key={stall._id} className="px-6 py-4 hover:bg-gray-50">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
