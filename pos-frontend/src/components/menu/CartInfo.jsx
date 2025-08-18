@@ -118,7 +118,7 @@ const CartInfo = () => {
                     size={20}
                   />
                 </div>
-                <p className="text-gray-800 text-md font-bold">₹{item.price}</p>
+                <p className="text-gray-800 text-md font-bold">SGD {item.price}</p>
               </div>
               
               {/* Quantity adjustment controls */}

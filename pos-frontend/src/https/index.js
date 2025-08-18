@@ -17,6 +17,10 @@ export const updateTable = ({ tableId, ...tableData }) =>
 // Payment Endpoints
 export const createPaymentIntent = (data) =>
   axiosWrapper.post("/api/payment/create-payment-intent", data);
+export const createCheckoutSession = (data) =>
+  axiosWrapper.post("/api/payment/create-checkout-session", data);
+export const verifyCheckoutSession = (sessionId, orderId) =>
+  axiosWrapper.get(`/api/payment/verify-checkout/${sessionId}/${orderId}`);
 export const confirmPayment = (data) =>
   axiosWrapper.post("/api/payment/confirm-payment", data);
 export const getTerminalReaders = () =>
@@ -34,7 +38,11 @@ export const processPaymentOnReader = (data) =>
 
 // Order Endpoints
 export const addOrder = (data) => axiosWrapper.post("/api/order/", data);
-export const getOrders = () => axiosWrapper.get("/api/order");
+export const getOrders = (params = {}) => {
+  const queryString = new URLSearchParams(params).toString();
+  return axiosWrapper.get(`/api/order${queryString ? `?${queryString}` : ''}`);
+};
+export const getOrderByOrderId = (orderId) => axiosWrapper.get(`/api/order/by-order-id/${orderId}`);
 export const updateOrderStatus = ({ orderId, paymentStatus }) =>
   axiosWrapper.put(`/api/order/${orderId}`, { paymentStatus });
 
@@ -48,6 +56,7 @@ export const deleteProduct = (productId) => axiosWrapper.delete(`/api/products/$
 
 // Configuration Endpoints
 export const updateTaxRate = (data) => axiosWrapper.put("/api/configuration/tax-rate", data);
+export const updatePlatformFeeRate = (data) => axiosWrapper.put("/api/configuration/platform-fee-rate", data);
 
 // Terminal Management Endpoints
 export const verifyTerminal = (data) => axiosWrapper.post("/api/configuration/terminals/verify", data);
@@ -65,6 +74,7 @@ export const unassignTerminalFromStall = (terminalId) =>
   axiosWrapper.put(`/api/configuration/terminals/${terminalId}/unassign`);
 export const getTerminalAssignments = () => axiosWrapper.get("/api/configuration/terminals/assignments");
 export const getTaxRate = () => axiosWrapper.get("/api/configuration/tax-rate");
+export const getPlatformFeeRate = () => axiosWrapper.get("/api/configuration/platform-fee-rate");
 
 // Stall Manager Endpoints
 export const getStallManagers = () => axiosWrapper.get("/api/stall-managers");

@@ -52,7 +52,7 @@ const stallSchema = new mongoose.Schema({
 // Indexes for performance
 stallSchema.index({ adminId: 1 });
 stallSchema.index({ managerId: 1 });
-stallSchema.index({ stallNumber: 1 }, { unique: true });
+// Note: stallNumber index is already created by unique: true in field definition
 stallSchema.index({ terminalId: 1 });
 
 // Virtual for manager info

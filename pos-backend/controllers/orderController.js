@@ -3,6 +3,29 @@ const Order = require("../models/orderModel");
 const { default: mongoose } = require("mongoose");
 const { updateProductAvailability } = require("./productController");
 const Product = require("../models/productModel");
+const Configuration = require("../models/configurationModel");
+
+// Helper function to calculate platform fee amount for reporting
+// orderTotal should be the final amount customer pays (including tax)
+const calculatePlatformFeeAmount = async (orderTotalWithTax, userId) => {
+  try {
+    // Get platform fee rate from admin configuration
+    let platformFeeRate = 0;
+
+    // Find admin configuration (either user is admin or get from stall manager's admin)
+    const configuration = await Configuration.findOne({ adminId: userId });
+    if (configuration) {
+      platformFeeRate = configuration.taxSettings?.platformFeeRate || 0;
+    }
+
+    // Calculate platform fee amount
+    const platformFeeAmount = (orderTotalWithTax * platformFeeRate) / 100;
+    return platformFeeAmount;
+  } catch (error) {
+    console.error('Error calculating platform fee amount:', error);
+    return 0; // Return 0 if calculation fails
+  }
+};
 
 const addOrder = async (req, res, next) => {
   try {
@@ -10,7 +33,7 @@ const addOrder = async (req, res, next) => {
     if (req.body.items && req.body.items.length > 0) {
       // Check if all products have sufficient inventory
       const inventoryCheck = await validateInventory(req.body.items);
-      
+
       if (!inventoryCheck.valid) {
         return res.status(400).json({
           success: false,
@@ -19,8 +42,22 @@ const addOrder = async (req, res, next) => {
         });
       }
     }
-    
-    const order = new Order(req.body);
+
+    // Calculate platform fee amount for reporting (does not affect customer payment)
+    // Use totalWithTax (final amount customer pays) for platform fee calculation
+    const orderTotalWithTax = req.body.bills?.totalWithTax || 0;
+    const platformFeeAmount = await calculatePlatformFeeAmount(orderTotalWithTax, req.user._id);
+
+    // Add platform fee amount to bills for reporting
+    const orderData = {
+      ...req.body,
+      bills: {
+        ...req.body.bills,
+        platformFeeAmount: platformFeeAmount
+      }
+    };
+
+    const order = new Order(orderData);
     await order.save();
 
     // For cash payments, automatically set status to Completed since payment is received immediately
@@ -187,9 +224,39 @@ const getOrderById = async (req, res, next) => {
 
 const getOrders = async (req, res, next) => {
   try {
-    const orders = await Order.find();
+    const { stallId, stallManagerId } = req.query;
+    let filter = {};
+
+    // Determine user type and apply appropriate filtering
+    if (req.userType === 'stallManager') {
+      // Stall managers only see orders from their assigned stalls
+      filter.stallManagerId = req.user._id;
+      console.log(`🏪 Filtering orders for stall manager: ${req.user._id}`);
+    } else if (req.userType === 'admin' || req.user.role === 'Admin') {
+      // Admins see all orders from stalls they created
+      // If query parameters are provided, filter by them
+      if (stallId) {
+        filter.stallId = stallId;
+        console.log(`🏪 Admin filtering by stallId: ${stallId}`);
+      }
+      if (stallManagerId) {
+        filter.stallManagerId = stallManagerId;
+        console.log(`👤 Admin filtering by stallManagerId: ${stallManagerId}`);
+      }
+      // If no filters provided, admin sees all orders (no filter applied)
+      console.log(`👑 Admin user accessing orders with filter:`, filter);
+    }
+
+    const orders = await Order.find(filter)
+      .populate('stallId', 'name stallNumber location')
+      .populate('stallManagerId', 'name email')
+      .sort({ createdAt: -1 }); // Most recent first
+
+    console.log(`📋 Found ${orders.length} orders for user type: ${req.userType || req.user.role}`);
+    
     res.status(200).json({ success: true, data: orders });
   } catch (error) {
+    console.error('Error fetching orders:', error);
     next(error);
   }
 };
@@ -223,4 +290,26 @@ const updateOrder = async (req, res, next) => {
   }
 };
 
-module.exports = { addOrder, getOrderById, getOrders, updateOrder };
+// Get order by orderId (string ID, not MongoDB _id)
+const getOrderByOrderId = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findOne({ orderId: orderId })
+      .populate('paymentData')
+      .lean();
+
+    if (!order) {
+      const error = createHttpError(404, "Order not found!");
+      return next(error);
+    }
+
+    res
+      .status(200)
+      .json({ success: true, data: order });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { addOrder, getOrderById, getOrders, updateOrder, getOrderByOrderId };

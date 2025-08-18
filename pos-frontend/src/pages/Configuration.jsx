@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import BottomNav from "../components/shared/BottomNav";
 import TaxConfiguration from "../components/configuration/TaxConfiguration";
+import PlatformFeeConfiguration from "../components/configuration/PlatformFeeConfiguration";
 import StallManagerManagement from "../components/configuration/StallManagerManagement";
 import TerminalAssignment from "../components/configuration/TerminalAssignment";
 import { FaCog, FaPercent, FaDollarSign, FaStore, FaDesktop } from "react-icons/fa";
@@ -44,12 +45,7 @@ const Configuration = () => {
       case "tax":
         return <TaxConfiguration />;
       case "platform":
-        return (
-          <div className="bg-white rounded-lg p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-gray-800 mb-4">Platform Fee Settings</h3>
-            <p className="text-gray-600">Platform fee configuration will be implemented here.</p>
-          </div>
-        );
+        return <PlatformFeeConfiguration />;
       case "stalls":
         return (
           <div className="bg-white rounded-lg p-6 shadow-sm">

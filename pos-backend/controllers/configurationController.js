@@ -678,6 +678,186 @@ const getTaxRate = async (req, res, next) => {
     }
 };
 
+// Update platform fee rate for admin
+const updatePlatformFeeRate = async (req, res, next) => {
+    try {
+        const { platformFeeRate } = req.body;
+        const userId = req.user._id;
+
+        // Validate platform fee rate
+        if (platformFeeRate === undefined || platformFeeRate === null) {
+            const error = createHttpError(400, "Platform fee rate is required");
+            return next(error);
+        }
+
+        if (isNaN(platformFeeRate) || platformFeeRate < 0 || platformFeeRate > 100) {
+            const error = createHttpError(400, "Platform fee rate must be a number between 0 and 100");
+            return next(error);
+        }
+
+        // Get user to verify admin role
+        const User = require("../models/userModel");
+        const user = await User.findById(userId);
+        if (!user) {
+            const error = createHttpError(404, "User not found");
+            return next(error);
+        }
+
+        // Check if user is admin
+        if (user.role !== 'Admin') {
+            const error = createHttpError(403, "Only admin users can update platform fee rate configuration");
+            return next(error);
+        }
+
+        // Get or create configuration for admin
+        let configuration = await Configuration.findOne({ adminId: userId });
+        if (!configuration) {
+            configuration = new Configuration({
+                adminId: userId,
+                taxSettings: {
+                    taxRate: 5.25,
+                    platformFeeRate: platformFeeRate,
+                    lastUpdated: new Date()
+                },
+                terminals: [],
+                businessSettings: {
+                    currency: 'SGD',
+                    timezone: 'Asia/Singapore'
+                },
+                linkedUsers: []
+            });
+        } else {
+            // Update existing configuration
+            configuration.taxSettings.platformFeeRate = platformFeeRate;
+            configuration.taxSettings.lastUpdated = new Date();
+        }
+
+        await configuration.save();
+
+        // Get linked users and update their platform fee rates (if any)
+        const linkedUserIds = configuration.linkedUsers || [];
+        if (linkedUserIds.length > 0) {
+            // Update all linked users' platform fee rates in their configurations
+            const updateResult = await Configuration.updateMany(
+                {
+                    adminId: { $in: linkedUserIds }
+                },
+                {
+                    $set: {
+                        'taxSettings.platformFeeRate': platformFeeRate,
+                        'taxSettings.lastUpdated': new Date()
+                    }
+                }
+            );
+
+            console.log(`Updated platform fee rate for ${updateResult.modifiedCount} linked user configurations`);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Platform fee rate updated successfully",
+            data: {
+                platformFeeRate,
+                linkedUsersUpdated: linkedUserIds.length,
+                lastUpdated: configuration.taxSettings.lastUpdated
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating platform fee rate:', error);
+        next(error);
+    }
+};
+
+// Get platform fee rate for current user
+const getPlatformFeeRate = async (req, res, next) => {
+    try {
+        const userId = req.user._id;
+        const userType = req.userType;
+
+        let platformFeeRate = 0; // Default
+        let isAdmin = false;
+        let canModify = false;
+        let lastUpdated = null;
+
+        if (userType === 'stallManager') {
+            // For stall managers, get platform fee rate from their admin's configuration
+            const stallManager = req.user; // Already populated from middleware
+
+            if (stallManager.adminId) {
+                const adminConfig = await Configuration.findOne({ adminId: stallManager.adminId });
+                if (adminConfig) {
+                    platformFeeRate = adminConfig.taxSettings?.platformFeeRate || 0;
+                    lastUpdated = adminConfig.taxSettings?.lastUpdated || null;
+                }
+            }
+
+            isAdmin = false;
+            canModify = false; // Stall managers cannot modify platform fee rates
+        } else {
+            // For regular users
+            const User = require("../models/userModel");
+            const user = await User.findById(userId);
+            if (!user) {
+                const error = createHttpError(404, "User not found");
+                return next(error);
+            }
+
+            isAdmin = user.role === 'Admin';
+            canModify = isAdmin; // Only admins can modify platform fee rates
+
+            if (isAdmin) {
+                // For admin users, get from their configuration
+                const adminConfig = await Configuration.findOne({ adminId: userId });
+                if (adminConfig) {
+                    platformFeeRate = adminConfig.taxSettings?.platformFeeRate || 0;
+                    lastUpdated = adminConfig.taxSettings?.lastUpdated || null;
+                } else {
+                    // Create default configuration if it doesn't exist
+                    const newConfig = new Configuration({
+                        adminId: userId,
+                        taxSettings: {
+                            taxRate: 5.25,
+                            platformFeeRate: 0,
+                            lastUpdated: new Date()
+                        },
+                        terminals: [],
+                        businessSettings: {
+                            currency: 'SGD',
+                            timezone: 'Asia/Singapore'
+                        },
+                        linkedUsers: []
+                    });
+                    await newConfig.save();
+                    platformFeeRate = 0;
+                    lastUpdated = newConfig.taxSettings.lastUpdated;
+                }
+            } else {
+                // For non-admin users, use default or check if they have their own config
+                const userConfig = await Configuration.findOne({ adminId: userId });
+                if (userConfig) {
+                    platformFeeRate = userConfig.taxSettings?.platformFeeRate || 0;
+                    lastUpdated = userConfig.taxSettings?.lastUpdated || null;
+                }
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                platformFeeRate,
+                isAdmin,
+                canModify,
+                lastUpdated
+            }
+        });
+
+    } catch (error) {
+        console.error('Error getting platform fee rate:', error);
+        next(error);
+    }
+};
+
 module.exports = {
   verifyTerminal,
   addTerminal,
@@ -690,5 +870,7 @@ module.exports = {
   unassignTerminalFromStall,
   getTerminalAssignments,
   updateTaxRate,
-  getTaxRate
+  getTaxRate,
+  updatePlatformFeeRate,
+  getPlatformFeeRate
 };

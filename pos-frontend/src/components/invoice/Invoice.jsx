@@ -114,7 +114,7 @@ const Invoice = ({ orderInfo, setShowInvoice }) => {
       ${orderInfo.items.map((item, index) =>
         `<div class="item-row">
           <span>${index + 1}. ${item.name}</span>
-          <span>${item.price}₹</span>
+          <span>${item.price}SGD </span>
         </div>`
       ).join('')}
 
@@ -122,12 +122,12 @@ const Invoice = ({ orderInfo, setShowInvoice }) => {
 
       <div class="total-row">
         <span>Tax(${taxRate}%)</span>
-        <span>${Math.round(orderInfo.bills.tax)}₹</span>
+        <span>${Math.round(orderInfo.bills.tax)}SGD </span>
       </div>
       <div class="dashed-line"></div>
       <div class="total-row">
         <span>Total</span>
-        <span>${Math.round(orderInfo.bills.totalWithTax)}₹</span>
+        <span>${Math.round(orderInfo.bills.totalWithTax)}SGD </span>
       </div>
       <div class="dashed-line"></div>
       <div class="footer">
@@ -205,7 +205,7 @@ const Invoice = ({ orderInfo, setShowInvoice }) => {
                   <span>
                     {item.name} x{item.quantity}
                   </span>
-                  <span>₹{item.price.toFixed(2)}</span>
+                  <span>SGD {item.price.toFixed(2)}</span>
                 </li>
               ))}
             </ul>
@@ -215,13 +215,13 @@ const Invoice = ({ orderInfo, setShowInvoice }) => {
 
           <div className="mt-4 border-t pt-4 text-sm">
             <p>
-              <strong>Subtotal:</strong> ₹{orderInfo.bills.total.toFixed(2)}
+              <strong>Subtotal:</strong> SGD {orderInfo.bills.total.toFixed(2)}
             </p>
             <p>
-              <strong>Tax:</strong> ₹{orderInfo.bills.tax.toFixed(2)}
+              <strong>Tax:</strong> SGD {orderInfo.bills.tax.toFixed(2)}
             </p>
             <p className="text-md font-semibold">
-              <strong>Grand Total:</strong> ₹
+              <strong>Grand Total:</strong> SGD 
               {orderInfo.bills.totalWithTax.toFixed(2)}
             </p>
           </div>

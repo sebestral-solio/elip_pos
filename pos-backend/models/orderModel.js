@@ -28,6 +28,7 @@ const orderSchema = new mongoose.Schema({
     bills: {
         total: { type: Number, required: true },
         tax: { type: Number, required: true },
+        platformFeeAmount: { type: Number, default: 0 }, // Calculated platform fee amount for reporting
         totalWithTax: { type: Number, required: true }
     },
     items: [

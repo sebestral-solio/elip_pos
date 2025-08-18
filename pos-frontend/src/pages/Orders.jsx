@@ -6,8 +6,12 @@ import { getOrders } from "../https/index";
 import { enqueueSnackbar } from "notistack";
 import { formatDateAndTime } from "../utils";
 import { FaSearch, FaChevronLeft, FaChevronRight, FaEye } from "react-icons/fa";
+import { useSelector } from "react-redux";
 
 const Orders = () => {
+  // Get user info from Redux store
+  const { _id: userId, role } = useSelector(state => state.user);
+  
   // State management
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("all");
@@ -15,18 +19,34 @@ const Orders = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [stallFilter, setStallFilter] = useState("");
+  const [stallManagerFilter, setStallManagerFilter] = useState("");
 
   useEffect(() => {
     document.title = "POS | Orders"
   }, [])
 
-  // Fetch orders data
+  // Prepare query parameters for API call
+  const queryParams = useMemo(() => {
+    const params = {};
+    
+    // Admin users can filter by stall or stall manager
+    if (role === "Admin") {
+      if (stallFilter) params.stallId = stallFilter;
+      if (stallManagerFilter) params.stallManagerId = stallManagerFilter;
+    }
+    
+    return params;
+  }, [role, stallFilter, stallManagerFilter]);
+
+  // Fetch orders data with dynamic query key based on user and filters
   const { data: resData, isError, isLoading } = useQuery({
-    queryKey: ["orders"],
+    queryKey: ["orders", userId, role, queryParams],
     queryFn: async () => {
-      return await getOrders();
+      return await getOrders(queryParams);
     },
-    placeholderData: keepPreviousData
+    placeholderData: keepPreviousData,
+    enabled: !!userId // Only fetch when user ID is available
   });
 
   // Note: Payment status is read-only as it's controlled by payment webhooks
@@ -152,6 +172,35 @@ const Orders = () => {
               <option value="failed">Failed</option>
             </select>
           </div>
+
+          {/* Admin-only filters */}
+          {role === "Admin" && (
+            <>
+              {/* Stall Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700">Stall:</label>
+                <input
+                  type="text"
+                  placeholder="Stall ID (optional)"
+                  value={stallFilter}
+                  onChange={(e) => setStallFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 w-40"
+                />
+              </div>
+
+              {/* Stall Manager Filter */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium text-gray-700">Manager:</label>
+                <input
+                  type="text"
+                  placeholder="Manager ID (optional)"
+                  value={stallManagerFilter}
+                  onChange={(e) => setStallManagerFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 w-40"
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -187,6 +236,9 @@ const Orders = () => {
                   Payment Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Net Revenue
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Date
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -217,7 +269,7 @@ const Orders = () => {
                     {order.items?.length || 0} items
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    ₹{order.bills?.totalWithTax?.toFixed(2) || '0.00'}
+                    SGD {order.bills?.totalWithTax?.toFixed(2) || '0.00'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -240,6 +292,19 @@ const Orders = () => {
                     }`}>
                       {order.paymentStatus}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {(() => {
+                      // Show zero revenue for failed or pending payments
+                      if (order.paymentStatus === 'Failed' || order.paymentStatus === 'Pending') {
+                        return 'SGD 0.00';
+                      }
+                      
+                      const orderTotal = order.bills?.totalWithTax || 0;
+                      const platformFeeAmount = order.bills?.platformFeeAmount || 0;
+                      const netRevenue = orderTotal - platformFeeAmount;
+                      return `SGD ${netRevenue.toFixed(2)}`;
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {formatDateAndTime(order.orderDate || order.createdAt)}
@@ -430,8 +495,8 @@ const Orders = () => {
                         <tr key={index}>
                           <td className="px-4 py-2 text-sm">{item.name}</td>
                           <td className="px-4 py-2 text-sm">{item.quantity}</td>
-                          <td className="px-4 py-2 text-sm">₹{item.price?.toFixed(2)}</td>
-                          <td className="px-4 py-2 text-sm">₹{(item.price * item.quantity)?.toFixed(2)}</td>
+                          <td className="px-4 py-2 text-sm">SGD {item.price?.toFixed(2)}</td>
+                          <td className="px-4 py-2 text-sm">SGD {(item.price * item.quantity)?.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -442,15 +507,15 @@ const Orders = () => {
               <div className="border-t pt-4">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Subtotal:</span>
-                  <span>₹{selectedOrder.bills?.total?.toFixed(2) || '0.00'}</span>
+                  <span>SGD {selectedOrder.bills?.total?.toFixed(2) || '0.00'}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Tax:</span>
-                  <span>₹{selectedOrder.bills?.tax?.toFixed(2) || '0.00'}</span>
+                  <span>SGD {selectedOrder.bills?.tax?.toFixed(2) || '0.00'}</span>
                 </div>
                 <div className="flex justify-between items-center font-bold text-lg border-t pt-2">
                   <span>Total:</span>
-                  <span>₹{selectedOrder.bills?.totalWithTax?.toFixed(2) || '0.00'}</span>
+                  <span>SGD {selectedOrder.bills?.totalWithTax?.toFixed(2) || '0.00'}</span>
                 </div>
               </div>
             </div>

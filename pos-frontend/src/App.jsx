@@ -8,6 +8,8 @@ import {
 import { Home, Auth, Orders, Tables, Menu, Dashboard, Configuration } from "./pages";
 import Products from "./pages/Products";
 import Header from "./components/shared/Header";
+import CheckoutSuccess from "./components/checkout/CheckoutSuccess";
+import CheckoutCancel from "./components/checkout/CheckoutCancel";
 import { useSelector } from "react-redux";
 import useLoadData from "./hooks/useLoadData";
 import FullScreenLoader from "./components/shared/FullScreenLoader"
@@ -78,6 +80,22 @@ function Layout() {
           element={
             <ProtectedRoutes>
               <Products />
+            </ProtectedRoutes>
+          }
+        />
+        <Route
+          path="/checkout/success"
+          element={
+            <ProtectedRoutes>
+              <CheckoutSuccess />
+            </ProtectedRoutes>
+          }
+        />
+        <Route
+          path="/checkout/cancel"
+          element={
+            <ProtectedRoutes>
+              <CheckoutCancel />
             </ProtectedRoutes>
           }
         />

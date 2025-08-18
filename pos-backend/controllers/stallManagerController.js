@@ -35,7 +35,7 @@ const getStallManagers = async (req, res, next) => {
     // Get total count for pagination
     const totalCount = await StallManager.countDocuments(query);
     
-    // Fetch stall managers with pagination
+    // Fetch stall managers with pagination 
     const stallManagers = await StallManager.find(query)
       .populate('stallIds', 'stallNumber name location')
       .populate('adminId', 'name email')

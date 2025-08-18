@@ -1,5 +1,10 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import { updateTaxRate as updateTaxRateAPI, getTaxRate as getTaxRateAPI } from "../../https/index";
+import {
+  updateTaxRate as updateTaxRateAPI,
+  getTaxRate as getTaxRateAPI,
+  updatePlatformFeeRate as updatePlatformFeeRateAPI,
+  getPlatformFeeRate as getPlatformFeeRateAPI
+} from "../../https/index";
 
 // Async thunks for API calls
 export const fetchTaxRate = createAsyncThunk(
@@ -22,6 +27,30 @@ export const updateTaxRateAsync = createAsyncThunk(
       return response.data.data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to update tax rate');
+    }
+  }
+);
+
+export const updatePlatformFeeRateAsync = createAsyncThunk(
+  'config/updatePlatformFeeRate',
+  async (platformFeeRate, { rejectWithValue }) => {
+    try {
+      const response = await updatePlatformFeeRateAPI({ platformFeeRate });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to update platform fee rate');
+    }
+  }
+);
+
+export const fetchPlatformFeeRate = createAsyncThunk(
+  'config/fetchPlatformFeeRate',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await getPlatformFeeRateAPI();
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch platform fee rate');
     }
   }
 );
@@ -92,6 +121,38 @@ const configSlice = createSlice({
         state.error = null;
       })
       .addCase(updateTaxRateAsync.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Fetch platform fee rate cases
+      .addCase(fetchPlatformFeeRate.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchPlatformFeeRate.fulfilled, (state, action) => {
+        state.loading = false;
+        state.platformFeeRate = action.payload.platformFeeRate;
+        state.isAdmin = action.payload.isAdmin;
+        state.canModify = action.payload.canModify;
+        state.lastUpdated = action.payload.lastUpdated;
+        state.error = null;
+      })
+      .addCase(fetchPlatformFeeRate.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // Update platform fee rate cases
+      .addCase(updatePlatformFeeRateAsync.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updatePlatformFeeRateAsync.fulfilled, (state, action) => {
+        state.loading = false;
+        state.platformFeeRate = action.payload.platformFeeRate;
+        state.lastUpdated = action.payload.lastUpdated;
+        state.error = null;
+      })
+      .addCase(updatePlatformFeeRateAsync.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
       });

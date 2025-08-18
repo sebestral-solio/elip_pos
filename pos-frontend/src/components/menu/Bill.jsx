@@ -4,6 +4,7 @@ import { getTotalPrice } from "../../redux/slices/cartSlice";
 import {
   addOrder,
   createPaymentIntent,
+  createCheckoutSession,
   updateTable,
   confirmPayment,
   checkPaymentStatus,
@@ -55,6 +56,7 @@ const Bill = () => {
 
 
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [onlinePaymentMethod, setOnlinePaymentMethod] = useState(""); // "terminal" or "checkout"
   const [showInvoice, setShowInvoice] = useState(false);
   const [orderInfo, setOrderInfo] = useState();
 
@@ -421,6 +423,13 @@ const Bill = () => {
       return;
     }
 
+    if (paymentMethod === "Online" && !onlinePaymentMethod) {
+      enqueueSnackbar("Please select an online payment method!", {
+        variant: "warning",
+      });
+      return;
+    }
+
     // Show customer info modal
     setShowCustomerModal(true);
   };
@@ -443,60 +452,109 @@ const Bill = () => {
     }
 
     if (paymentMethod === "Online") {
-      try {
-        // Load Stripe Terminal SDK
-        const res = await loadStripeTerminal();
+      if (onlinePaymentMethod === "terminal") {
+        // Terminal payment flow (existing logic)
+        try {
+          // Load Stripe Terminal SDK
+          const res = await loadStripeTerminal();
 
-        if (!res) {
-          enqueueSnackbar("Stripe Terminal SDK failed to load. Are you online?", {
-            variant: "warning",
-          });
-          return;
-        }
-
-        // Create payment intent - backend will automatically support both card_present and paynow
-        const reqData = {
-          amount: totalPriceWithTax.toFixed(2),
-          customerInfo: {
-            name: customerName,
-            phone: customerPhone,
-          },
-          orderData: {
-            items: cartItems.map(item => ({
-              id: item.id,
-              productId: item.id,
-              name: item.name,
-              price: item.price,
-              quantity: item.quantity
-            })),
-            bills: {
-              total: total,
-              tax: tax,
-              totalWithTax: totalPriceWithTax,
-            },
-            paymentMethod: "stripe"
+          if (!res) {
+            enqueueSnackbar("Stripe Terminal SDK failed to load. Are you online?", {
+              variant: "warning",
+            });
+            return;
           }
-        };
 
-        const { data } = await createPaymentIntent(reqData);
+          // Create payment intent - backend will automatically support both card_present and paynow
+          const reqData = {
+            amount: totalPriceWithTax.toFixed(2),
+            customerInfo: {
+              name: customerName,
+              phone: customerPhone,
+            },
+            orderData: {
+              items: cartItems.map(item => ({
+                id: item.id,
+                productId: item.id,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity
+              })),
+              bills: {
+                total: total,
+                tax: tax,
+                totalWithTax: totalPriceWithTax,
+              },
+              paymentMethod: "stripe"
+            }
+          };
 
-        // Start real-time payment monitoring
-        enqueueSnackbar(`Payment created (Order: ${data.orderId}). Waiting for terminal processing...`, { variant: "info" });
-        startPaymentMonitoring(data.paymentIntent.id);
+          const { data } = await createPaymentIntent(reqData);
 
-      } catch (error) {
-        console.log('❌ Payment creation failed:', error);
+          // Start real-time payment monitoring
+          enqueueSnackbar(`Payment created (Order: ${data.orderId}). Waiting for terminal processing...`, { variant: "info" });
+          startPaymentMonitoring(data.paymentIntent.id);
 
-        // Extract specific error message from backend response
-        const errorMessage = extractErrorMessage(error);
+        } catch (error) {
+          console.log('❌ Payment creation failed:', error);
 
-        // Set payment error state to show in modal
-        setPaymentError(errorMessage);
+          // Extract specific error message from backend response
+          const errorMessage = extractErrorMessage(error);
 
-        // Also show snackbar notification
-        enqueueSnackbar(errorMessage, {
-          variant: "error",
-        });
+          // Set payment error state to show in modal
+          setPaymentError(errorMessage);
+
+          // Also show snackbar notification
+          enqueueSnackbar(errorMessage, {
+            variant: "error",
+          });
+        }
+      } else if (onlinePaymentMethod === "checkout") {
+        // Stripe Checkout flow (new logic)
+        try {
+          const reqData = {
+            amount: totalPriceWithTax.toFixed(2),
+            customerInfo: {
+              name: customerName,
+              phone: customerPhone,
+            },
+            orderData: {
+              items: cartItems.map(item => ({
+                id: item.id,
+                productId: item.id,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity
+              })),
+              bills: {
+                total: total,
+                tax: tax,
+                totalWithTax: totalPriceWithTax,
+              },
+              paymentMethod: "stripe_checkout"
+            }
+          };
+
+          const { data } = await createCheckoutSession(reqData);
+
+          // Redirect to Stripe Checkout
+          enqueueSnackbar(`Redirecting to payment page (Order: ${data.orderId})...`, { variant: "info" });
+          window.location.href = data.checkoutUrl;
+
+        } catch (error) {
+          console.log('❌ Checkout session creation failed:', error);
+
+          // Extract specific error message from backend response
+          const errorMessage = extractErrorMessage(error);
+
+          // Set payment error state to show in modal
+          setPaymentError(errorMessage);
+
+          // Also show snackbar notification
+          enqueueSnackbar(errorMessage, {
+            variant: "error",
+          });
+        }
       }
     } else {
       // Cash payment - Place the order directly
@@ -595,12 +653,12 @@ const Bill = () => {
             Items({cartItems.length})
           </p>
           <h1 className="text-[black] text-md font-bold">
-            ₹{total.toFixed(2)}
+            SGD {total.toFixed(2)}
           </h1>
         </div>
         <div className="flex items-center justify-between px-5 mt-2">
           <p className="text-xs text-[black] font-medium">Tax({taxRate}%)</p>
-          <h1 className="text-[black] text-md font-bold">₹{tax.toFixed(2)}</h1>
+          <h1 className="text-[black] text-md font-bold">SGD {tax.toFixed(2)}</h1>
         </div>
         <div className="flex items-center justify-between px-5 mt-2">
           <p className="text-xs text-[black] font-medium">
@@ -609,14 +667,17 @@ const Bill = () => {
           <h1 className={`text-md font-bold ${
             !isOrderValid() ? "text-red-500" : "text-[black]"
           }`}>
-            ₹{totalPriceWithTax.toFixed(2)}
+            SGD {totalPriceWithTax.toFixed(2)}
           </h1>
         </div>
 
 
         <div className="flex items-center gap-3 px-5 mt-4">
           <button
-            onClick={() => setPaymentMethod("Cash")}
+            onClick={() => {
+              setPaymentMethod("Cash");
+              setOnlinePaymentMethod(""); // Reset online payment method
+            }}
             className={`bg-[white] px-4 py-3 w-full rounded-lg text-[black] font-semibold ${
               paymentMethod === "Cash" ? "bg-[yellow] text-[black]" : ""
             }`}
@@ -624,7 +685,10 @@ const Bill = () => {
             Cash
           </button>
           <button
-            onClick={() => setPaymentMethod("Online")}
+            onClick={() => {
+              setPaymentMethod("Online");
+              setOnlinePaymentMethod(""); // Reset online payment method when switching to Online
+            }}
             className={`bg-[white] px-4 py-3 w-full rounded-lg text-[black] font-semibold ${
               paymentMethod === "Online" ? "bg-[yellow] text-[black]" : ""
             }`}
@@ -633,15 +697,41 @@ const Bill = () => {
           </button>
         </div>
 
+        {/* Online Payment Method Sub-options */}
+        {paymentMethod === "Online" && (
+          <div className="flex items-center gap-3 px-5 mt-3">
+            <button
+              onClick={() => setOnlinePaymentMethod("terminal")}
+              className={`bg-[white] px-3 py-2 w-full rounded-lg text-[black] font-medium text-sm border ${
+                onlinePaymentMethod === "terminal"
+                  ? "bg-[#e3f2fd] text-[#1976d2] border-[#1976d2]"
+                  : "border-gray-300"
+              }`}
+            >
+              Tap to Pay/Swipe
+            </button>
+            <button
+              onClick={() => setOnlinePaymentMethod("checkout")}
+              className={`bg-[white] px-3 py-2 w-full rounded-lg text-[black] font-medium text-sm border ${
+                onlinePaymentMethod === "checkout"
+                  ? "bg-[#e8f5e8] text-[#2e7d32] border-[#2e7d32]"
+                  : "border-gray-300"
+              }`}
+            >
+              Pay Now
+            </button>
+          </div>
+        )}
+
         <div className="flex  items-center gap-3 px-5 mt-4">
           <button className="bg-[#025cca] px-4 py-3 w-full rounded-lg text-[#f5f5f5] font-semibold text-lg">
             Print Receipt
           </button>
           <button
             onClick={handlePlaceOrderClick}
-            disabled={!isOrderValid() || !paymentMethod}
+            disabled={!isOrderValid() || !paymentMethod || (paymentMethod === "Online" && !onlinePaymentMethod)}
             className={`px-4 py-3 w-full rounded-lg font-semibold text-lg transition-all duration-200 ${
-              !isOrderValid() || !paymentMethod
+              !isOrderValid() || !paymentMethod || (paymentMethod === "Online" && !onlinePaymentMethod)
                 ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-60"
                 : "bg-[red] text-[white] hover:bg-red-600 cursor-pointer"
             }`}

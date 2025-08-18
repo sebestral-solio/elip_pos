@@ -227,7 +227,7 @@ const ProductList = () => {
                     )}
 
                     <div className="flex justify-between items-center mt-4" onClick={(e) => e.stopPropagation()}>
-                      <p className="text-black font-bold">₹{product.price}</p>
+                      <p className="text-black font-bold">SGD {product.price}</p>
                       {/* <div className="flex items-center bg-red-500 px-3 py-2 rounded-lg">
                         <button
                           onClick={(e) => {
@@ -308,7 +308,7 @@ const ProductList = () => {
                     )}
 
                     <div className="flex justify-between items-center mt-4" onClick={(e) => e.stopPropagation()}>
-                      <p className="text-black font-bold">₹{product.price}</p>
+                      <p className="text-black font-bold">SGD {product.price}</p>
                     </div>
 
                     {/* Stock information */}

@@ -229,7 +229,7 @@ const Products = () => {
                     <h2 className="text-xl font-semibold text-gray-800 mt-2">{product.name}</h2>
                     <p className="text-gray-600 text-sm mb-2">{product.description}</p>
                     <div className="flex justify-between items-center mt-4">
-                      <span className="text-gray-800 font-bold">₹{product.price}</span>
+                      <span className="text-gray-800 font-bold">SGD {product.price}</span>
                       <span className="text-gray-600 text-sm">{product.category}</span>
                     </div>
                     <div className="flex justify-between items-center mt-2">

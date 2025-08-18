@@ -13,7 +13,9 @@ const {
   unassignTerminalFromStall,
   getTerminalAssignments,
   updateTaxRate,
-  getTaxRate
+  getTaxRate,
+  updatePlatformFeeRate,
+  getPlatformFeeRate
 } = require("../controllers/configurationController");
 
 // Terminal Verification
@@ -37,5 +39,9 @@ router.get("/terminals/assignments", isVerifiedUser, getTerminalAssignments);
 // Tax Configuration Routes
 router.put("/tax-rate", isVerifiedUser, updateTaxRate);
 router.get("/tax-rate", isVerifiedUser, getTaxRate);
+
+// Platform Fee Configuration Routes
+router.put("/platform-fee-rate", isVerifiedUser, updatePlatformFeeRate);
+router.get("/platform-fee-rate", isVerifiedUser, getPlatformFeeRate);
 
 module.exports = router;

@@ -6,6 +6,10 @@ const paymentSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    checkoutSessionId: {
+        type: String,
+        required: false // Only for stripe_checkout payments
+    },
     chargeId: String,
     amount: Number,
     currency: String,
@@ -14,7 +18,7 @@ const paymentSchema = new mongoose.Schema({
         enum: ["succeeded", "failed", "pending", "cancelled","Failed"],
         required: true
     },
-    paymentMethodType: String, // 'card_present', 'paynow', etc.
+    paymentMethodType: String, // 'card_present', 'paynow', 'stripe_checkout', etc.
     paymentMethod: String,
     email: String,
     contact: String,

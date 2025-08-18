@@ -13,7 +13,7 @@ connectDB();
 // Middlewares
 app.use(cors({
     credentials: true,
-    origin: ['http://localhost:5173', 'http://localhost:4173', 'http://localhost:6001','https://pos.nxgenvarsity.com']
+    origin: ['http://localhost:6001', 'http://localhost:4173', 'http://localhost:6001','https://pos.nxgenvarsity.com']
 }))
 
 // Special handling for Stripe webhooks - need raw body
